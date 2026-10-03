@@ -1,0 +1,1150 @@
+{
+  "instructions": "Laso Finance lets agents move real dollars: prepaid cards, gift cards, push-to-card, Venmo/PayPal and bank payouts, funded with USDC. These tools mirror the x402 HTTP API at https://laso.finance (contract: https://laso.finance/openapi.json) and are generated from it, so they always match the deployed API.\n\nFIRST CALL: run announce_connection before any other Laso tool, once per setup. A human just pasted your credential into their terminal and is watching a \"waiting for your agent to connect\" screen; that call is what tells them it worked, names you in their dashboard, and starts a session in their activity stream. It also returns your wallet's funding state, so it doubles as your setup check. Introduce yourself with agent_name and message.\n\nAuthentication is handled by this plugin: it sends the LASO_API_KEY your human set up (a lasoak_ key from https://laso.finance/agent/dashboard). Never ask for the key or pass it as a tool argument. Every Laso tool is registered with a laso_ prefix, so a tool named in these instructions or in a tool description as X is laso_X.\n\nPaid tools (marked PAID ROUTE) settle their USDC price automatically from your managed agent wallet. Before the first paid call, run get_agent_wallet (create_agent_wallet if needed) and fund the wallet's Solana address with USDC.\n\nUse search_docs for anything else: fees, limits, webhooks, KYC, refunds, error handling.",
+  "tools": [
+    {
+      "name": "laso_get_version",
+      "description": "Get the current docs version\n\nReturns the current content-hash version of the Laso Finance agent docs (`SKILL.md`, `openapi.json`, `llms.txt`, `llms-full.txt`, `ai-plugin.json`). Free, no auth or payment header.\n\nAgents aggressively cache these docs, so use this to detect a stale cache: if the `docs_version` you last saw differs from the value returned here, refetch the docs. Every API response also carries this value in the `X-Laso-Docs-Version` response header, alongside `X-Laso-Docs-Manifest`, which points at the authoritative freshness beacon at `https://laso.finance/.well-known/docs-version.json`.\n\nThis route is also the `status` target of the API catalog at `https://laso.finance/.well-known/api-catalog` (RFC 9727), which every response advertises via a `Link` header with `rel=\"api-catalog\"`.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_refresh_token",
+      "description": "Refresh an ID token\n\nExchange a refresh token for a new ID token. This is a free endpoint — no x402 payment required. Uses the standard OAuth2 `grant_type=refresh_token` pattern.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "enum": ["refresh_token"],
+            "description": "Must be \"refresh_token\""
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "The refresh token received from a previous /auth or /get-card call"
+          }
+        },
+        "required": ["grant_type", "refresh_token"]
+      }
+    },
+    {
+      "name": "laso_order_card",
+      "description": "Order a USA prepaid card\n\nPay between $5–$1000 USDC to order a Laso Finance USA prepaid card. By default returns JSON with auth credentials and card info (for AI agents). Pass `format=html` to get an HTML redirect to the card redemption URL (for browser-based flows).\n\nThe JSON response includes a `card.status` of `\"pending\"`. Card details (number, CVV, etc.) take ~7-10 seconds to become available. Poll `getCardData` at the `callableBaseUrl` to check when `status` becomes `\"ready\"`.\n\n**U.S. only.** This card is issued in USD and can only be used for purchases at U.S.-based merchants. Physical goods must ship to a U.S. address. For non-U.S. merchants or non-USD currencies, use `GET /order-intl-card` instead. This endpoint is intended for the caller's own use — the card is non-transferable.\n\nPAID ROUTE (5-1000 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 1000,
+            "description": "USD amount to load on the card (min $5, max $1000)"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "html"],
+            "default": "json",
+            "description": "Response format. `json` (default) returns auth credentials and card info for agents. `html` returns a redirect page for browsers."
+          }
+        },
+        "required": ["amount"]
+      }
+    },
+    {
+      "name": "laso_get_card_data",
+      "description": "Get card details\n\nReturns the current status and details of card orders. If `card_id` is provided, returns a single card, looked up across U.S. non-reloadable, international non-reloadable, and reloadable cards. If omitted, returns all cards of the given `card_type` for the authenticated user; `card_type` defaults to `Non-Reloadable U.S.` when omitted, so existing callers see unchanged behavior. Pass `card_type=Non-Reloadable International` to list international cards, or `card_type=Reloadable` to list reloadable cards.\n\nFor U.S. non-reloadable cards, details take ~7-10 seconds to become available after ordering; poll every 2-3 seconds until `status` is `\"ready\"`, then read `card_details`. For international non-reloadable cards, the order is `queued` until an admin fulfills it (typically within 24 hours), after which `card_details` is populated.\n\nFor international cards, the `card_id` returned by `/order-intl-card` is a queue id. After admin fulfillment, the issuer's transaction id becomes the new `card_id` and the original queue id is preserved on the card as `queued_order_card_id`. You can keep polling `/get-card-data?card_id=<original-queue-id>` and it will resolve to the fulfilled card.\n\n**Reloadable cards** are a separate product, set up by the account holder in the Laso dashboard rather than ordered through this API. They are reusable (a `multi_use` card stays open across charges until its limit is spent) and can be topped up, unlike the single-load non-reloadable cards. Listing them returns `balance`, `spend_limit`, `last4`, `expiry`, and `reusable`. If the wallet has no card issuer account linked, the list is empty and a `note` explains how the holder sets one up.\n\nReading a reloadable card's **number and CVV** is gated by the card issuer, and which gate applies depends on who issued it. Request the card by `card_id`; the response carries exactly one of three fields. `card_details` is the normal result for a card created through `/create-reloadable-card`, which Laso issues on the holder's behalf and can read for them directly — no approval step is involved. `details_approval` with `status: \"pending\"` and an `approval_id` appears only for a card the holder created in a DIFFERENT app: the issuer has emailed them an approve/deny link, and once they approve you retry as `GET /get-card-data?card_id=<CARD_ID>&approval_id=<APPROVAL_ID>` to receive `card_details`. `details_error` means the issuer could not return the number; retry shortly, and if it persists the holder can read the card in the dashboard. Spend the card by entering its number, expiry, and CVV at the merchant's checkout. `billing_address` is null on these cards and always will be — the issuer holds no billing address for a card. If a merchant requires one, use the address the account holder gave at identity verification (ask them; do not guess), since these cards are AVS-checked against it and a mismatch is the most common decline on a card that has funds. A card with `reusable: true` stays open after an approved charge and can be spent again up to its remaining `balance`; a charge larger than the balance is declined in full, as there are no partial approvals.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "The card ID returned from `/get-card` or `/order-intl-card`, or a reloadable card's id from `card_type=Reloadable`. Looked up across all three card types. If omitted, returns all cards of `card_type`."
+          },
+          "card_type": {
+            "type": "string",
+            "enum": [
+              "Non-Reloadable U.S.",
+              "Non-Reloadable International",
+              "Reloadable"
+            ],
+            "default": "Non-Reloadable U.S.",
+            "description": "When listing all cards (no `card_id`), filters by card type. Defaults to `Non-Reloadable U.S.` if omitted (preserves existing client behavior). Pass `Non-Reloadable International` to list international cards, or `Reloadable` to list reloadable cards."
+          },
+          "approval_id": {
+            "type": "string",
+            "description": "Reloadable cards only, and only for a card the account holder created in a DIFFERENT app: pass the approval_id from a prior details_approval response once they have approved it. Cards created through /create-reloadable-card are Laso-issued and never require this."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_list_card_transactions",
+      "description": "List reloadable card transactions\n\nReturns transactions on the authenticated user's **reloadable** cards, newest first: amount, merchant, status, and timestamps.\n\nPass `card_id` for one card's history, or omit it for every reloadable card on the account. Filter with `status` and cap the page with `limit`.\n\nThis route covers reloadable cards only. The two non-reloadable products keep their history in Laso's own records and are read through `/get-card-data`.\n\nIf the wallet has no card issuer account linked, the list is empty and a `note` explains how the account holder sets one up at https://laso.finance/agent/dashboard/verified/card.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Return only this card's transactions. Omit for every reloadable card on the account."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of transactions to return. Defaults to the issuer's own page size (20)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status, e.g. `pending`, `settled`, `declined`, `reversed`, `refunded`."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_get_card_deposit_address",
+      "description": "Get the reloadable card deposit address\n\nReturns the account holder's own USDC deposit address at the card issuer, and the balance currently on it. **This is how an agent funds a reloadable card balance with crypto.**\n\nFunding is user-funded: the address belongs to the account holder, so USDC sent to it credits their balance and funds their cards. The issuer provisions the address on first read, so simply calling this creates it.\n\n**Base only.** The address takes USDC on Base. USDC sent on another chain is unrecoverable. A Laso managed agent wallet holds USDC on **Solana**, so fund from a wallet that holds USDC on Base rather than transferring straight from a managed wallet.\n\nDeposits usually confirm within a couple of minutes. Poll this endpoint until `balance` reflects the deposit, then call `POST /create-reloadable-card`.\n\nThe address is stable per holder, but read it through this endpoint rather than caching it: the issuer is the only authority on it.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_get_saved_cards",
+      "description": "List the holder's saved cards\n\nLists the cards the account holder saved themselves: a card they already own, typed once on the card issuer's page and locked behind their passkey. **Nothing is issued or prefunded, and no identity verification is needed.** Every purchase paid with a saved card is approved by the holder on their own device.\n\nThe response carries display fields only, never a card number. An empty `cards` list means nothing is saved yet: call `POST /create-saved-card-link` and send the returned `url` to your human.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_create_saved_card_link",
+      "description": "Get a link for the holder to save their own card\n\nReturns a single-use link where the account holder types a card they already own and locks it with their passkey. The card is encrypted on their device; Laso never sees the number.\n\n**Send the `url` to your human. Do not open it yourself.** Saving a card is the holder's step, like identity verification: the page asks for the card and a passkey, with no account to create and no code to type.\n\nPoll `GET /get-saved-cards` until the card appears. Each link works once and expires at `expires_at`; mint a new one if it lapses.\n\n**This route is free** and needs no identity verification or prior setup: the holder's first saved card creates their card account.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_buy_with_saved_card",
+      "description": "Shop and pay with the holder's saved card\n\nBuys from online merchants (Amazon, Walmart, Target, Best Buy, DoorDash and more) and pays with the card the account holder saved themselves (see `GET /get-saved-cards`). One conversation per purchase:\n\n1. Send what to buy as `ask`, in plain language. Pass `delivery_address` on this first call when you know it.\n2. Relay `reply` to the holder and send their answers back as `ask` with the same `conversation_id`, until a `cart` comes back.\n3. Show the holder the cart. Once they agree, send its `hash` as `confirm` with the `conversation_id`. Nothing can be charged before this.\n4. The confirm answers `awaiting_approval` with an `approval_url`. **Send it to your human; never open it yourself.** They approve on their own device with their passkey. Then send the same confirm again to get `order_placed`.\n\nA turn runs against a live merchant and can take up to two minutes. This call waits about 45 seconds: a turn that finishes in time comes back complete (`state: done`); a slower one comes back as `state: running` with a `turn_id` to poll with `GET /get-purchase-turn`.\n\n**This route is free.** The holder's own card pays the merchant, and no identity verification is needed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ask": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "What the holder wants, in plain language. Required unless confirming."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "The conversation to continue. Required with `confirm`."
+          },
+          "confirm": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "description": "A cart's `hash` from an earlier turn, to place exactly that cart."
+          },
+          "delivery_address": {
+            "type": "object",
+            "description": "Where to ship. Send it on the call that asks for the cart (a cart is bound to the address it was shown for) and on the confirm.",
+            "required": ["street", "city", "state", "zip"],
+            "properties": {
+              "street": {
+                "type": "string"
+              },
+              "address2": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "description": "Two-letter state or province code."
+              },
+              "zip": {
+                "type": "string",
+                "description": "US ZIP or Canadian postal code."
+              },
+              "phone": {
+                "type": "string",
+                "description": "Recipient phone. Retail shipping requires one."
+              },
+              "name": {
+                "type": "string",
+                "description": "Recipient name for the label."
+              },
+              "can_leave_at_door": {
+                "type": "boolean"
+              },
+              "country": {
+                "type": "string",
+                "description": "ISO 3166-1 alpha-2. Inferred from the postal code when omitted."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_get_purchase_turn",
+      "description": "Read a purchase turn that was still running\n\nReads back a turn from `POST /buy-with-saved-card` that came back `state: running`. Poll every few seconds until `state` is `done` or `failed`; the response has the same shape as the POST.\n\nA `failed` confirm may still have placed the order. Read `GET /get-purchase-conversation` before sending it again.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "turn_id": {
+            "type": "string",
+            "description": "The `turn_id` from `POST /buy-with-saved-card`."
+          }
+        },
+        "required": ["turn_id"]
+      }
+    },
+    {
+      "name": "laso_get_purchase_conversation",
+      "description": "Read a purchase conversation's orders\n\nThe record of a purchase conversation: whether a turn is still running, the last checkout attempt, and every order it placed with its charge status. Use it to track an order, and to settle what happened before repeating a confirm whose outcome is unclear (`in_progress`, `charge_status: unknown`, or a `failed` turn).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "The `conversation_id` from a purchase turn."
+          }
+        },
+        "required": ["conversation_id"]
+      }
+    },
+    {
+      "name": "laso_create_reloadable_card",
+      "description": "Create a reloadable card\n\nCreates a **reloadable** card funded from the account holder's balance with the card issuer, and returns it. This is the same card the holder creates in the Laso dashboard, so an agent and a human end up with the same product.\n\nThe card is **reusable by default** (`reusable: true`): it stays open across charges until its limit is spent. Pass `reusable: false` for a single-use card that closes after its first approved charge.\n\n**This route is free** — no x402 payment. The card draws on the account holder's own balance with the issuer, so Laso fronts nothing.\n\n**If the balance is short**, this route answers `402`. Fund it by sending USDC: `GET /get-card-deposit-address` returns the holder's own deposit address at the card issuer (USDC on Base only), and the balance credits within a couple of minutes. The holder can also top up with Apple or Google Pay in the dashboard.\n\nRead the new card's number and CVV with `/get-card-data?card_id=...`. A card created here is Laso-issued, so its `card_details` come back directly — the approval step applies only to cards the holder created in a different app.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "usd_amount": {
+            "type": "number",
+            "description": "Amount in US dollars to load onto the card, minimum $1. Sent as dollars, not cents."
+          },
+          "reusable": {
+            "type": "boolean",
+            "description": "Whether the card stays open across charges. Defaults to `true`; `false` closes it after the first approved charge."
+          }
+        },
+        "required": ["usd_amount"]
+      }
+    },
+    {
+      "name": "laso_get_account_balance",
+      "description": "Get account balance\n\nReturns the current account balance and total deposits for the authenticated user.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_get_kyc_status",
+      "description": "Get KYC verification status (optional)\n\n**KYC is optional.** Most endpoints (cards, gift cards, push-to-card, account balance, withdrawals) do not require verification. It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`, and may be used for additional controls in the future. If you are not using those features, you can ignore the verification endpoints entirely.\n\nReturns the calling wallet's cached KYC verification status. Use this as a free pre-flight check before paying for `/send-payment`: if `kyc_verified` is `true` the payout will go through. If it is `false`, don't call `/send-payment` yet — that call would not send the payout (it returns `kyc_required` and a `kyc_url`), and the USDC you paid would just land in your account balance, recoverable with `POST /withdraw`. To start verification when not verified, call `/get-kyc-link`.\n\nThis reads the cached status kept up to date by the verification webhook; it does not start verification or return a verification link.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_get_kyc_link",
+      "description": "Get a KYC verification link (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`, and may be used for additional controls in the future. If you are not using those features, you can ignore the verification endpoints.\n\nReturns a one-time identity-verification link (`kyc_url`) for the calling wallet. Open it (or hand it to the wallet owner) to complete verification. The typical flow is: call `/get-kyc-status`, and only if `kyc_verified` is `false` call this to get a link, complete it, then proceed to `/send-payment`.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_register_webhook",
+      "description": "Register a notification webhook (free)\n\nRegisters (or replaces) an HTTPS webhook URL to receive the calling wallet's account notifications as signed POSTs — banking application status changes, bank transfer and payout completions, agent wallet deposits, card orders, and every other event the user is notified about. This closes the polling gap for agents: instead of re-fetching status endpoints, point this at any URL you can receive HTTP on (your harness's inbound webhook endpoint, or a relay you poll).\n\nDeliveries are signed per the Standard Webhooks specification (https://www.standardwebhooks.com/): each POST carries `webhook-id`, `webhook-timestamp`, and `webhook-signature` (`v1,<base64 HMAC-SHA256>`) headers verifiable with any standard-webhooks library using the returned `secret`. The body is `{\"type\": \"notification.<category>\", \"timestamp\": \"<ISO 8601>\", \"data\": {\"user_id\", \"title\", \"text\", \"category\"}}`.\n\nThe `secret` is returned exactly once, by this call. Re-registering rotates the secret, replaces the URL, and re-enables a registration that was auto-disabled after 50 consecutive failed deliveries. Registering also notifies the account owner through their other channels and fires a first signed test delivery (`type` `notification.account`) at the new URL.\n\nDeliveries time out after 10 seconds and are not retried; treat the webhook as a low-latency hint and the status endpoints as the source of truth. The URL must be public HTTPS.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Public HTTPS URL to receive signed notification POSTs. Max 512 characters. Private/internal hosts are rejected."
+          }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "laso_get_webhook",
+      "description": "Get webhook registration & delivery health (free)\n\nReturns the calling wallet's webhook registration and its delivery health. The signing secret is never returned here — it is shown once by `POST /register-webhook`; re-register to rotate it.\n\nA registration is auto-disabled after 50 consecutive failed deliveries (`disabled` becomes `true`); re-register to re-enable it.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_delete_webhook",
+      "description": "Delete the notification webhook (free)\n\nRemoves the calling wallet's webhook registration. Notifications keep flowing to the user's other channels (push, SMS, Telegram, in-app); only the webhook deliveries stop. The account owner is notified of the removal.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_withdraw",
+      "description": "Withdraw from account balance\n\nInitiate a withdrawal from the user's account balance. The USDC is sent on Solana to the `solana_address` you supply; the destination is never inferred, so the address is required.\n\nThis is an asynchronous operation. A successful call answers `202 Accepted`: the withdrawal is created in a `pending` state and sent within a few minutes. Poll the returned `status_url` (`GET /get-withdrawal-status?withdrawal_id=...`) until `state` reaches a terminal value rather than treating the 202 as completion.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0.01,
+            "description": "Amount to withdraw in USD"
+          },
+          "solana_address": {
+            "type": "string",
+            "description": "Solana wallet address that receives the USDC. Must be a valid base58 Solana address."
+          }
+        },
+        "required": ["amount", "solana_address"]
+      }
+    },
+    {
+      "name": "laso_get_withdrawal_status",
+      "description": "Get withdrawal statuses\n\nReturns the status of withdrawals for the authenticated user. If `withdrawal_id` is provided, returns a single withdrawal. If omitted, returns all withdrawals.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "withdrawal_id": {
+            "type": "string",
+            "description": "Get a specific withdrawal by ID. If omitted, returns all withdrawals."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_refresh_card_data",
+      "description": "Trigger a card data refresh\n\nRequests an updated balance for a card.\n\nFor U.S. non-reloadable cards (default), the card is re-scraped from the issuer via a retrieval queue and processed asynchronously. Rate limited per card to one request every 5 minutes, and to at most 12 refreshes in any rolling 24-hour period.\n\nFor international non-reloadable cards, a balance update request is recorded; an admin will manually update the balance within 24 hours. While a balance update is already pending for a card, additional requests for that card return 409.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "The card ID to refresh data for"
+          },
+          "card_type": {
+            "type": "string",
+            "description": "The type of card. Defaults to `Non-Reloadable U.S.` if omitted.",
+            "enum": ["Non-Reloadable U.S.", "Non-Reloadable International"]
+          }
+        },
+        "required": ["card_id"]
+      }
+    },
+    {
+      "name": "laso_order_intl_card",
+      "description": "Order an international prepaid card\n\nOrder an international non-reloadable prepaid card (USD). The order is queued and fulfilled by an admin — after fulfillment, card details become available via `GET /get-card-data` with `card_type=Non-Reloadable International`.\n\nThe x402 payment covers the on-card amount plus a 3.8% fee, or a lower rate while a limited-time fee promotion is running (it can be 0%). The 402 challenge always carries the exact total. Minimum $100, maximum $1,000 on-card amount. The $1,000 maximum is the amount loaded on the card and does not change with the fee rate. Submit a whole dollar amount.\n\nPlacing the order accepts the card issuer's terms on behalf of the account holder: the [Cardholder Agreement](https://laso.finance/intl-card-cardholder-agreement.pdf), the [E-Communications Disclosure](https://laso.finance/intl-card-e-communications-disclosure.pdf), and the [Privacy Notice](https://laso.finance/intl-card-privacy-notice.pdf).\n\nIf you need to cancel a queued order before it is fulfilled, use `POST /cancel-intl-order`.\n\nPAID ROUTE (100-1038 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 1000,
+            "description": "On-card USD amount (min $100, max $1,000 regardless of the fee rate). Must be a whole dollar amount: the issuer only issues whole-dollar cards. The x402 payment is this amount plus a 3.8% fee, or less during a fee promotion."
+          }
+        },
+        "required": ["amount"]
+      }
+    },
+    {
+      "name": "laso_cancel_intl_order",
+      "description": "Cancel a queued international card order\n\nCancel a previously queued international non-reloadable card order, as long as it has not yet been fulfilled by an admin (`state=queued`). The charged amount is credited back to the account balance.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "The card ID of the queued order to cancel (returned from `/order-intl-card`)"
+          }
+        },
+        "required": ["card_id"]
+      }
+    },
+    {
+      "name": "laso_search_merchants",
+      "description": "Search merchant spend data\n\nSearch Laso's merchant database for confirmed spend data for a given card type. Returns whether the card was accepted, not accepted, or unknown at each merchant.\n\nUse `card_type` to search by the USA prepaid card (`Non-Reloadable U.S.`, the default) or the international prepaid card (`Non-Reloadable International`). USA searches exclude merchants with non-US country-code TLDs; international searches do not.\n\n**Important:** This database only contains merchants where Laso users have previously attempted a transaction. A merchant not being listed, or being listed as `unknown`, does NOT mean the card won't work there — it just means it hasn't been tried yet. If a merchant is listed as `accepted`, you can confidently use the card there. If listed as `not_accepted`, the card will fail at that merchant.\n\nBanking and money-transfer merchants are always returned as `not_accepted` with a `restriction_note`, whatever the transaction history shows. Spending there counts as a transfer of value and is not supported on any card.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query — the merchant name to search for (e.g. \"amazon\", \"netflix\")"
+          },
+          "card_type": {
+            "type": "string",
+            "enum": ["Non-Reloadable U.S.", "Non-Reloadable International"],
+            "default": "Non-Reloadable U.S.",
+            "description": "Which card type to search acceptance for. Defaults to `Non-Reloadable U.S.` if omitted (preserves existing client behavior). Pass `Non-Reloadable International` to search for international prepaid card acceptance."
+          }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "laso_start_signup",
+      "description": "Start a signup for a human with no Laso account\n\nBegins account creation for a human who does not have a Laso account yet. Requires no authentication, because the caller has no account.\n\nThis does **not** create the account. An agent cannot: the account is created by Privy in the human's own browser, so it belongs to them and not to their agent. What this returns is a `claim_url` to hand over.\n\nGive your human the `claim_url` verbatim in your very next reply (send `message_for_human` if unsure what to say), and do not open it yourself. Then poll `GET /signup-status`, which holds the connection open until they finish and hands you your `lasoak_` API key.\n\nRate limited per IP.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_name": {
+            "type": "string",
+            "description": "Your name, shown to your human on the claim screen and recorded as the connected agent.",
+            "example": "Ada"
+          },
+          "label": {
+            "type": "string",
+            "description": "Optional label recorded on the minted API key so your human can tell keys apart.",
+            "example": "ada-prod"
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_get_signup_status",
+      "description": "Wait for your human to finish the signup\n\nLong-polls until the human opens the claim link and finishes creating the account. Holds the connection open for about 60 seconds and returns **204 No Content** if they have not finished yet.\n\n**Retry on 204 and nothing else.** The call already blocks for you, so add no sleep between attempts. Every other status is final and retrying will not change the answer: 401 means the token is wrong, 410 means the link expired. Both carry `\"terminal\": true` in the body. A loop written as \"retry until 200\" spins at network speed against those, because they answer instantly rather than holding the connection.\n\nOn completion it returns your `api_key` — **delivered exactly once**. Store it before doing anything else; a later poll returns the account without it. By that point the human is on their dashboard, their agent wallet is provisioned, and you are already recorded as their connected agent, so `announceAgentConnection` is not needed on this path.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "claim_token": {
+            "type": "string",
+            "description": "The claim_token from POST /signup."
+          },
+          "claim_code": {
+            "type": "string",
+            "description": "The claim_code from the same POST /signup response."
+          }
+        },
+        "required": ["claim_token", "claim_code"]
+      }
+    },
+    {
+      "name": "laso_get_auth_link",
+      "description": "Get a login link for the web dashboard\n\nReturns a URL that a human can open in a browser to log in to the Laso Finance web dashboard as the authenticated user. Useful for humans who want to see what their AI agent has been doing (view cards, transactions, balances, etc.).\n\nThe URL carries a short single-use login code rather than a long token, so relay it to your human verbatim; it passes through tool-output credential filters intact. Do not fetch or open the URL yourself: redeeming the code consumes the human's login.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_send_feedback",
+      "description": "Send feedback about the API\n\nTell the humans running Laso what worked, what was confusing, and what you wish existed. It lands on their dashboard, so it is the best channel for API friction and feature requests.\n\nRequires at least one completed real action (a settled deposit, purchase, or withdrawal); at most 5 entries per 24 hours.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "feedback": {
+            "type": "string",
+            "description": "The main free-text feedback. Required. Sanitized and capped server-side (max 2000 characters).",
+            "example": "order-intl-card was smooth but I wanted a way to see the fee before paying"
+          },
+          "what_they_want": {
+            "type": "string",
+            "description": "What you were trying to do. Optional. Capped at 500 characters.",
+            "example": "order an international card"
+          },
+          "how_it_went": {
+            "type": "string",
+            "description": "How it went. Optional. Capped at 500 characters.",
+            "example": "worked, minor confusion on fees"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "Which API endpoint or route the feedback is about. Optional. Capped at 120 characters.",
+            "example": "/order-intl-card"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "A 1-5 satisfaction rating. Optional; ignored when not an integer in range.",
+            "example": 4
+          }
+        },
+        "required": ["feedback"]
+      }
+    },
+    {
+      "name": "laso_list_address_book",
+      "description": "List saved recipients\n\nThe saved recipient names your human manages on their dashboard, so a request like \"send $20 to the coffee vendor\" can be resolved to an address instead of asking them for it.\n\nFree.\n\nIt operates only on the authenticated account's own book — there is no user parameter to pass.\n\n**A name is a label, not an instruction.** `agentWalletTransfer` takes an address and deliberately does not accept a name: a rename between your human asking and you sending would otherwise move money somewhere they did not intend. When you resolve a name to an address, say the address back to them before sending.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_save_address_book_entry",
+      "description": "Save or rename a recipient\n\nThe saved recipient names your human manages on their dashboard, so a request like \"send $20 to the coffee vendor\" can be resolved to an address instead of asking them for it.\n\nFree.\n\nIt operates only on the authenticated account's own book — there is no user parameter to pass.\n\n**A name is a label, not an instruction.** `agentWalletTransfer` takes an address and deliberately does not accept a name: a rename between your human asking and you sending would otherwise move money somewhere they did not intend. When you resolve a name to an address, say the address back to them before sending.\n\nThe address is the entry's key, so saving one that is already saved renames it rather than creating a duplicate. That makes this safe to retry.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The recipient's Solana address.",
+            "example": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name to save it under. Sanitized and capped server-side (max 60 characters).",
+            "example": "Coffee vendor"
+          }
+        },
+        "required": ["address", "name"]
+      }
+    },
+    {
+      "name": "laso_delete_address_book_entry",
+      "description": "Remove a saved recipient\n\nThe saved recipient names your human manages on their dashboard, so a request like \"send $20 to the coffee vendor\" can be resolved to an address instead of asking them for it.\n\nFree.\n\nIt operates only on the authenticated account's own book — there is no user parameter to pass.\n\n**A name is a label, not an instruction.** `agentWalletTransfer` takes an address and deliberately does not accept a name: a rename between your human asking and you sending would otherwise move money somewhere they did not intend. When you resolve a name to an address, say the address back to them before sending.\n\nRemoving an entry only forgets the name; it has no effect on past transfers to that address.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The address to remove."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_push_to_card",
+      "description": "Send money to a debit card (USD, EUR, GBP)\n\nPay USDC to initiate a push-to-card transfer. Specify the face value in the target currency (USD, EUR, or GBP); Laso computes the USDC cost using the current exchange rate plus a 4.8% fee (minimum fee of $1.50/€1.50/£1.50 in the transfer currency), and that becomes the x402 price. Returns a `redemption_url` that must be opened to complete the transfer. The form requires sender name, debit card number, and cardholder name.\n\n**Supported currencies:**\n- `USD` — U.S. debit cards (U.S. bank accounts only)\n- `EUR` — Eurozone debit cards\n- `GBP` — U.K. debit cards\n\nLaso cannot perform the transfer directly — the redemption URL must be visited and the debit card details entered manually (by the agent or a human).\n\n**Fee:** 4.8%, with a minimum of 1.50 in the transfer currency (included in the USDC price, computed from the requested face value).\n\nPAID ROUTE (11.50-10000 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 9541.98,
+            "description": "Face value to send to the debit card, denominated in the chosen `currency` (min 10, max 9,541.98). The x402 payment price is this face value converted to USD plus a 4.8% fee (minimum fee of 1.50 in the chosen currency)."
+          },
+          "currency": {
+            "type": "string",
+            "enum": ["USD", "EUR", "GBP"],
+            "default": "USD",
+            "description": "Target currency for the debit card transfer. Defaults to `USD`."
+          }
+        },
+        "required": ["amount"]
+      }
+    },
+    {
+      "name": "laso_send_payment",
+      "description": "Send a payment via Venmo or PayPal\n\nPay USDC to send money to a Venmo or PayPal recipient. The x402 USDC price is the requested amount plus a 4.9% fee (with a $1.50 minimum fee). On-chain payment credits the calling wallet's Laso account balance via the standard deposit webhook; the callable then debits the gross amount and dispatches the payout.\n\n**Asynchronous.** A dispatched payout answers `202 Accepted`, not `200`: the payment is recorded and handed to the payout provider, which settles it afterwards. Poll the returned `status_url` (`GET /get-payment-status?payment_id=...`) until `state` reaches a terminal value rather than treating the 202 as money received. A `200` means the opposite: nothing was dispatched because identity verification is required.\n\n**KYC required.** The first time a wallet sends a Venmo or PayPal payout it must complete identity verification. If the wallet is not yet verified the response returns `kyc_required: true` and a `kyc_url` — open the URL, complete the flow, and retry. If you don't want to proceed, the credited account balance can be withdrawn with `POST /withdraw`.\n\n**Recipient details.** For Venmo, `recipient_id` is the recipient's 10-digit U.S. phone number, and the first and last name are optional. No email is needed. For PayPal, `recipient_id` is the recipient's PayPal email, which also serves as `recipient_email` (so `recipient_email` is optional), and the first and last name are required.\n\n**Fee:** 4.9% with a $1.50 minimum (included in the USDC price).\n\nPAID ROUTE (6.50-1049 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 1000,
+            "description": "USD amount to send to the recipient (min $5, max $1,000). The x402 payment price is this amount plus a 4.9% fee (with a $1.50 minimum)."
+          },
+          "platform": {
+            "type": "string",
+            "enum": ["venmo", "paypal"],
+            "description": "Payment platform."
+          },
+          "recipient_id": {
+            "type": "string",
+            "description": "Recipient identifier. For Venmo: 10-digit U.S. phone number. For PayPal: email address."
+          },
+          "recipient_first_name": {
+            "type": "string",
+            "description": "Recipient's first name (English letters A-Z and a-z only). Required for PayPal, optional for Venmo."
+          },
+          "recipient_last_name": {
+            "type": "string",
+            "description": "Recipient's last name (English letters A-Z and a-z only). Required for PayPal, optional for Venmo."
+          },
+          "recipient_email": {
+            "type": "string",
+            "format": "email",
+            "description": "PayPal only. Recipient's email address; defaults to recipient_id (the PayPal email). Ignored for Venmo."
+          }
+        },
+        "required": ["amount", "platform", "recipient_id"]
+      }
+    },
+    {
+      "name": "laso_fund_card_balance",
+      "description": "Load a reloadable card balance\n\nPay USDC to load the account holder's reloadable card balance at the card issuer.\n\n**Why this exists:** the card issuer only accepts USDC on **Base**, and a Laso managed agent wallet holds USDC on **Solana**. Pay this route from either chain and Laso bridges the payment to your own deposit address at the issuer over Circle's CCTP, which burns on the source chain and mints native USDC on Base.\n\n**Price:** exactly the amount you are loading, and exactly that amount is credited to the balance. Loading $50 costs $50 and puts $50 on the card. Laso covers Circle's bridging fee by burning slightly more than requested.\n\n**A linked card issuer account is required.** The account holder sets it up at https://laso.finance/agent/dashboard/verified/card.\n\n**Delivery starts once your payment settles.** The response confirms the payment and returns a `top_up_id`; the transfer to your card balance follows and usually lands in under a minute. A payment made on Base is already on the issuer's chain, so it is forwarded without a bridge. Watch the top-up under `top_ups` in `GET /list-card-transactions`, where `status` moves `paid` → `bridging` → `delivered` → `credited` and the transaction hash behind each leg appears as it lands, or poll `GET /get-card-deposit-address` until `balance` reflects it.\n\n**Follow with `POST /create-reloadable-card`** to create a card against the balance once it has arrived.\n\n**If the top-up's status becomes `failed`**, nothing is stranded: the USDC you paid has credited your Laso account balance. Retry, or recover it with `POST /withdraw`.\n\nPAID ROUTE (5-1000 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 1000,
+            "description": "USD of USDC to load onto the card balance (min $5, max $1,000). The x402 price equals this amount; Laso absorbs the bridge cost."
+          }
+        },
+        "required": ["amount"]
+      }
+    },
+    {
+      "name": "laso_withdraw_card_balance",
+      "description": "Withdraw from a reloadable card balance\n\nMove unspent money off the account holder's reloadable card. The balance behind a reloadable card is held by the card issuer, and this asks the issuer to pay `amount` of it out as USDC on **Base** to the `destination_address` you supply. It is the reverse of `GET /fund-card-balance`, and free: the money is the holder's own, and Laso moves nothing itself.\n\n**Base only.** The issuer pays on Base and nowhere else, so the destination must be a Base wallet you control. A Laso managed agent wallet holds USDC on **Solana** and cannot receive this. The card deposit address from `GET /get-card-deposit-address` is not a valid destination either.\n\n**Not instant.** The issuer processes payouts manually, usually within 1-3 business days, and emails the account holder when the payout is sent. The response carries the issuer's `withdrawal_id`; there is no status route to poll. The request is recorded as a `withdrawal` event under `card_events` in `GET /list-card-transactions`, and the balance from `GET /get-card-deposit-address` drops once it is paid.\n\n**Amount:** $2 to $10,000, and no more than the balance the issuer can release. Withdrawals the issuer has not paid yet still count against the balance, so a second request can only take what remains.\n\nConfirm the amount and destination with the account holder before calling this. A linked card issuer account is required; the holder sets it up at https://laso.finance/agent/dashboard/verified/card.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 2,
+            "maximum": 10000,
+            "description": "USD to withdraw from the card balance (min $2, max $10,000)."
+          },
+          "destination_address": {
+            "type": "string",
+            "description": "The 0x-prefixed Base wallet address that receives the USDC. Must be one you control; Base only."
+          }
+        },
+        "required": ["amount", "destination_address"]
+      }
+    },
+    {
+      "name": "laso_list_payment_recipients",
+      "description": "List saved Venmo and PayPal recipients (free)\n\nLists the Venmo or PayPal recipients this account has paid before, so you can resolve a name your human said (\"send $20 to Jane\") into the `handle` that `GET /send-payment` takes as its `recipient_id`. Free — only the payout itself is a paid action.\n\nTwo different ids are in play. Each entry's `recipient_id` is an opaque saved-entry id: pass it to `POST` and `DELETE /payment-recipients`. Its `handle` is the phone number or email you actually pay: pass that as `recipient_id` to `GET /send-payment`. Passing the saved-entry id to `GET /send-payment` does not send to the saved person.\n\nUse `total_sent` and `last_sent_timestamp` to disambiguate similar names, and confirm with your human rather than guessing between two entries.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": ["venmo", "paypal"],
+            "description": "Payment platform whose saved recipients to list."
+          },
+          "include_archived": {
+            "type": "string",
+            "enum": ["true", "false"],
+            "description": "Include archived entries. Defaults to false."
+          }
+        },
+        "required": ["platform"]
+      }
+    },
+    {
+      "name": "laso_update_payment_recipient",
+      "description": "Rename or archive a saved recipient (free)\n\nRenames a saved Venmo or PayPal recipient, archives it, or both. Provide at least one of `display_name` or `archived`.\n\nArchiving hides an entry from the default list while keeping its history, which is the reversible way to retire a recipient. Prefer it over `DELETE`.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "description": "Payment platform the recipient is saved under.",
+            "type": "string",
+            "enum": ["venmo", "paypal"]
+          },
+          "recipient_id": {
+            "type": "string",
+            "description": "The entry's `recipient_id` from `GET /payment-recipients` (an opaque id, not the phone number or email)."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Must be a string. A wrong type returns a terminal 400 with code `invalid_display_name`."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Must be a boolean. A wrong type returns a terminal 400 with code `invalid_archived`."
+          }
+        },
+        "required": ["platform", "recipient_id"]
+      }
+    },
+    {
+      "name": "laso_delete_payment_recipient",
+      "description": "Remove a saved recipient (free)\n\nRemoves a saved Venmo or PayPal recipient. Payment history is kept; only the saved entry stops being offered.\n\nThis is not reversible through the API, so prefer archiving (`POST /payment-recipients` with `archived: true`) when the account owner may want the recipient back, and confirm before removing someone they did not ask you to remove.\n\n`platform` and `recipient_id` may be sent in the JSON body or the query string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": ["venmo", "paypal"],
+            "description": "Required unless sent in the body."
+          },
+          "recipient_id": {
+            "type": "string",
+            "description": "Required unless sent in the body. The entry's `recipient_id` from `GET /payment-recipients` (an opaque id, not the phone number or email)."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_get_payment_status",
+      "description": "Check Venmo and PayPal payout status (free)\n\nReports the state of the Venmo and PayPal payouts this account has sent with `GET /send-payment`. Free: only the payout itself is a paid action.\n\nThree ways to call it: with `payment_id` to fetch one payout, with `recipient_id` (from `GET /payment-recipients`) to list every payout to that saved recipient, or with neither to list every payout this account has sent, newest first.\n\n`state` is `queued` (waiting on account balance), `in-process` (dispatched to the platform), `complete`, `failed`, or `cancelled`. `queued` and `in-process` are the two states still in flight; poll every few minutes, or register a webhook with `POST /register-webhook` to be told when a payout completes instead. A payout that has been `in-process` for more than an hour is worth raising with the account owner. `state` is absent on payouts sent before state tracking existed.\n\nBank payouts are not listed here: follow those with `listBankingTransactions`. Push-to-card transfers are completed by the recipient in the browser and have no server-side state.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "Fetch one payout by its `id`. Takes precedence over `recipient_id`."
+          },
+          "recipient_id": {
+            "type": "string",
+            "description": "List every payout to one saved recipient. This is the `recipient_id` returned by `GET /payment-recipients`, not the phone number or email."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_send_bank_payment",
+      "description": "Send dollars to a bank account\n\nPay USDC to send dollars to a bank account by ACH. The x402 USDC price is the requested amount plus a 0.25% transfer fee (with a $1.50 minimum fee). On-chain payment credits the calling wallet's Laso account balance via the standard deposit webhook; the callable then debits the gross amount and queues the transfer.\n\n**A bank destination is required first.** `destination_id` comes from the banking callables: create the banking profile with `createBankingProfile`, register who is being paid with `createBankingRecipient`, and attach their bank account with `addBankingDestination`, which returns the id. List what you already have at `GET /bank-recipients` (free). See the [bank accounts guide](/guides/agent-bank-accounts) for the full setup.\n\n**Identity verification is required** on the account that owns the banking profile, and only the human owner can complete it. `createBankingProfile` hands back a `kycUrl` when it is outstanding.\n\n**If the payout cannot be fulfilled** (no approved banking profile, a destination that is not yours, an amount out of range), nothing is stranded: the USDC you paid has already credited your account balance. Fix the problem and retry, or recover it with `POST /withdraw`.\n\n**Settlement:** ACH, normally 1-2 business days. Follow it with `listBankingTransactions` / `getBankingTransaction`.\n\n**Fee:** 0.25% with a $1.50 minimum (included in the USDC price).\n\nPAID ROUTE (11.50-50125 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 50000,
+            "description": "USD delivered to the recipient's bank account (min $10, max $50,000). The x402 payment price is this amount plus a 0.25% fee (with a $1.50 minimum)."
+          },
+          "destination_id": {
+            "type": "string",
+            "description": "Bank destination to pay out to. Returned by `addBankingDestination`, and listed by `GET /bank-recipients`."
+          }
+        },
+        "required": ["amount", "destination_id"]
+      }
+    },
+    {
+      "name": "laso_search_gift_cards",
+      "description": "Search the gift card catalog\n\nBrowse and search available gift cards. Returns a list of gift card products with pricing, denomination, and catalog information. Use the `laso_server_id` from the results to order a card via `GET /order-gift-card`.\n\nEvery response includes a `facets` object listing the valid values for the `category`, `currency`, and `country` filters. The facets are computed from the full catalog, so a single unfiltered request (no query parameters) is enough to discover everything you can filter on.\n\nThis is a free endpoint — no x402 payment required.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query to filter gift cards by name (e.g. \"Amazon\", \"Uber\")"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code to filter by (e.g. \"US\", \"GB\"). Returns gift cards available in that country, including borderless products that have no country restriction."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code to filter by (e.g. \"USD\", \"EUR\")"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category to filter by (e.g. \"ecommerce\", \"travel\", \"gaming\"). See the `facets.categories` array in any response for the full list of valid values."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_order_gift_card",
+      "description": "Order a gift card\n\nPay USDC via x402 to order a gift card. First browse the catalog via `GET /search-gift-cards` to find the `laso_server_id` for the card you want, then call this endpoint with the amount and product ID.\n\n**Pricing:** `amount` is the card's face value in the product's own currency, not USD. Laso converts it to USD at the current exchange rate and adds the product's fee (up to 4.8%); that total is the x402 USDC price. A 100 SAR card costs roughly $28 USDC, not $100. Check the product's `currency` field in `GET /search-gift-cards` to see what `amount` is denominated in.\n\nThe $5 minimum and $9,000 maximum apply to the **converted USD value**, not the raw amount, so a foreign-currency amount is accepted only when its USD equivalent falls inside that range.\n\nReturns redemption details (URL, code, and/or PIN) depending on the gift card brand.\n\nPAID ROUTE (5-9432 USD): the x402 USDC price is paid automatically from your managed agent wallet. Make sure the wallet exists and is funded first (get_agent_wallet).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Gift card face value in the product's own currency (see the product's `currency` field in `GET /search-gift-cards`), not USD. The x402 price is this value converted to USD plus the product fee. After conversion it must be worth at least $5 and at most $9,000 USD."
+          },
+          "laso_server_id": {
+            "type": "string",
+            "description": "The product identifier from the gift card catalog (GET /search-gift-cards). Always copy it from a search result; an id that is not in the catalog returns 404 `unknown_laso_server_id`. Amazon is `amazon` for every country, selected with `country`."
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO 3166-1 alpha-2 country code (defaults to \"US\")"
+          }
+        },
+        "required": ["amount", "laso_server_id"]
+      }
+    },
+    {
+      "name": "laso_create_banking_profile",
+      "description": "Create the banking profile\n\nOpens the banking profile that all other banking calls hang off. Identity verification is required first; if the human has not verified, the reply carries `kycRequired: true` and a `kycUrl` to hand them. **This is the only step an agent cannot complete itself.** Retry once they finish.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_get_banking_profile_status",
+      "description": "Check the banking profile status\n\nReads the current state of the banking profile: whether it exists, and where its application stands.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_get_banking_application",
+      "description": "Read the banking application\n\nReads what the application still needs. Returns `ready` (whether it can be submitted), `applicationStatus`, and the outstanding questions. The identity answers carry over from verification; what remains are non-identity questions such as employment status and source of funds, which an agent can answer itself.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_update_banking_application_details",
+      "description": "Answer application questions\n\nSubmits answers to the non-identity application questions read from `getBankingApplication`. Call as many times as needed; each call merges.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "details": {
+            "type": "object",
+            "description": "The answers to submit, keyed by the field names `getBankingApplication` reported as outstanding."
+          }
+        },
+        "required": ["details"]
+      }
+    },
+    {
+      "name": "laso_upload_banking_document",
+      "description": "Upload a proof-of-address document\n\nAttaches a proof-of-address document to the banking application, for the cases where the partner asks for one. The application must already exist and have an individual on it, so complete the application first.\n\n**Two things reject uploads that otherwise look fine.** A `.jpg` file must be sent as `fileType: \"jpeg\"` — `\"jpg\"` is refused. And the partner caps the *decoded* size at 10MB, even though their own upload page advertises 20MB; oversized files are rejected here before the round-trip.\n\n`fileContent` accepts either a bare base64 string or a `data:` URL, so a browser `FileReader.readAsDataURL` result can be passed through unchanged.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "documentType": {
+            "type": "string",
+            "enum": ["proof_of_address", "bank_statement", "utility_bill"],
+            "description": "The kind of document.",
+            "example": "utility_bill"
+          },
+          "fileType": {
+            "type": "string",
+            "enum": ["pdf", "jpeg", "png"],
+            "description": "The file's format. Send a .jpg as `jpeg`.",
+            "example": "jpeg"
+          },
+          "fileContent": {
+            "type": "string",
+            "description": "The file, base64-encoded. A `data:` URL is also accepted. Decoded size must be 10MB or less."
+          },
+          "country": {
+            "type": "string",
+            "description": "The document's country, ISO 3166-1 alpha-2.",
+            "example": "US"
+          },
+          "filename": {
+            "type": "string",
+            "description": "The file's name.",
+            "example": "utility-bill.pdf"
+          }
+        },
+        "required": ["documentType", "fileType", "fileContent", "country"]
+      }
+    },
+    {
+      "name": "laso_submit_banking_application",
+      "description": "Submit the application\n\nSubmits the completed application for review. If the partner rejects it as incomplete, the reply says what is still missing rather than failing opaquely.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_create_banking_account",
+      "description": "Open an on-ramp or off-ramp account\n\nOpens a banking rail. An **on-ramp** issues a virtual US bank account: dollars sent to it arrive as USDC in the managed wallet. An **off-ramp** pays out to a bank account you have registered, and is opened automatically by `/send-bank-payment`, so most agents never call this for one directly.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "accountType": {
+            "type": "string",
+            "enum": ["onramp", "offramp"],
+            "description": "Which rail to open."
+          },
+          "cryptoAddress": {
+            "type": "string",
+            "description": "On-ramp only. Where the converted USDC should land. Defaults to the managed agent wallet."
+          },
+          "networkId": {
+            "type": "string",
+            "description": "On-ramp only. Defaults to Solana mainnet."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Crypto asset ticker, uppercase.",
+            "example": "USDC"
+          },
+          "fiatDestinationId": {
+            "type": "string",
+            "description": "Off-ramp only. The bank destination payouts go to, from `addBankingDestination`."
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "On-ramp only. Bank rails to support. Defaults to ACH and wire."
+          },
+          "rail": {
+            "type": "string",
+            "description": "The payment rail for the account."
+          }
+        },
+        "required": ["accountType"]
+      }
+    },
+    {
+      "name": "laso_list_banking_accounts",
+      "description": "List banking accounts\n\nLists the account's banking rails and their details — for an on-ramp, the routing and account numbers to give whoever is paying in. The off-ramp deposit address is deliberately withheld: it is internal payout plumbing, not account detail.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_create_banking_recipient",
+      "description": "Create a payout recipient\n\nCreates a person or company money can be sent to. Bank details are attached separately with `addBankingDestination`.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The recipient's name.",
+            "example": "Acme LLC"
+          },
+          "address": {
+            "type": "object",
+            "description": "The recipient's postal address. Required before a bank destination can be attached, so supplying it here avoids a second call."
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "laso_add_banking_destination",
+      "description": "Attach bank details to a recipient\n\nAttaches a bank account or crypto address to a recipient and returns the `destination_id` that `/send-bank-payment` pays out to.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "recipientId": {
+            "type": "string",
+            "description": "The recipient from `createBankingRecipient`."
+          },
+          "destination": {
+            "type": "object",
+            "description": "The destination. For a US bank account: `destination_type: \"fiat_us\"` plus `aba_routing_number`, `account_number`, `account_type`, `account_holder_name`, and `bank_name`. Also supports `fiat_iban` and `crypto`."
+          },
+          "nickname": {
+            "type": "string",
+            "description": "An optional label. The only field editable later, via `updateBankingDestination`.",
+            "example": "Rent account"
+          },
+          "recipientAddress": {
+            "type": "object",
+            "description": "Sets the recipient's postal address before attaching the destination. Needed when the recipient was created name-only: bank destinations are rejected without one, so supplying it here avoids a dead end."
+          }
+        },
+        "required": ["recipientId", "destination"]
+      }
+    },
+    {
+      "name": "laso_list_banking_recipients",
+      "description": "List recipients and destinations\n\nLists payout recipients and their destinations, with account numbers masked to the last four digits. This is where `destination_id` values come from. Also available as the free paywalled route `GET /bank-recipients`.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_update_banking_destination",
+      "description": "Rename a destination\n\nSets or clears a destination's nickname. This is the only editable field: bank details are immutable at the partner, so anything else wrong means deleting the recipient and creating a new one.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "destinationId": {
+            "type": "string",
+            "description": "The destination to rename."
+          },
+          "nickname": {
+            "type": "string",
+            "description": "The new nickname. An empty string clears it.",
+            "example": "Rent account"
+          }
+        },
+        "required": ["destinationId", "nickname"]
+      }
+    },
+    {
+      "name": "laso_delete_banking_recipient",
+      "description": "Delete a recipient\n\nDeletes a recipient, its destinations, and any off-ramp account that paid out to it. Irreversible.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "recipientId": {
+            "type": "string",
+            "description": "The recipient to delete."
+          }
+        },
+        "required": ["recipientId"]
+      }
+    },
+    {
+      "name": "laso_get_banking_transaction",
+      "description": "Read one transaction\n\nReads a single banking transaction — an on-ramp arriving or an off-ramp paying out — with its normalized status.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "transactionId": {
+            "type": "string",
+            "description": "The transaction to read."
+          }
+        },
+        "required": ["transactionId"]
+      }
+    },
+    {
+      "name": "laso_list_banking_transactions",
+      "description": "List transactions\n\nLists banking transactions for the account: money arriving over the on-ramp and paying out over the off-ramp, with normalized statuses and amounts.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_exchange_api_key",
+      "description": "Exchange an API key for a session\n\nExchanges a durable `lasoak_` API key for a short-lived `id_token` (one hour) plus a `refresh_token`, and returns an `auth_url` to hand your human so they can watch what you do. This is the first call an agent makes. The reply's `id_token` authenticates every other endpoint here.\n\nIf you have no key, your human creates one at https://laso.finance/agent/dashboard — there is no other way to obtain one.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "description": "Your `lasoak_` API key.",
+            "example": "lasoak_..."
+          }
+        },
+        "required": ["api_key"]
+      }
+    },
+    {
+      "name": "laso_get_agent_spend_limit",
+      "description": "Read the per-payment spend limit\n\nReturns the maximum the account owner allows for any single payment from the managed wallet: `maxPerPaymentUsdc`, plus the `min`, `max`, and `default` bounds it can be set within, all in whole USDC. The limit defaults to $1,000 and ranges from $1 to $50,000. It applies to every payment `agentX402Pay` makes, Laso routes and external `url` endpoints alike.\n\nCheck an amount against this **before** attempting a payment rather than waiting to be refused. Compare the fee-inclusive total, since fees are added on top of the amount you request. Read-only to an agent: only the account owner can change the limit, from the dashboard. If a payment would exceed it, do not split it into smaller payments. Stop and tell your human.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_create_agent_api_key",
+      "description": "Issue an API key\n\nIssues a durable `lasoak_` API key for the account. **The raw key is returned once** — only its hash is stored, so it cannot be retrieved again. Normally the human does this from the dashboard.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "A label to recognize the key by.",
+            "example": "Claude Code"
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_announce_connection",
+      "description": "Call this FIRST, before any other Laso tool. Your human is watching a screen that waits for you to connect; this is what resolves it, names you in their dashboard, and starts a session in their activity stream. Introduce yourself with agent_name and message. Also returns your wallet funding state, so it doubles as your setup check.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_name": {
+            "type": "string",
+            "description": "What to call you in your human's dashboard, e.g. Claude Code. Max 60 characters."
+          },
+          "message": {
+            "type": "string",
+            "description": "A short greeting shown to your human, in your own words. Max 280 characters."
+          }
+        }
+      }
+    },
+    {
+      "name": "laso_get_agent_wallet",
+      "description": "Get your managed agent wallet: whether one exists, its Solana address, its USDC balance, and whether it needs funding. Paid tools draw from this wallet, so check it before your first paid call. Fund it by sending USDC (Solana) to wallet_address.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_create_agent_wallet",
+      "description": "Create your managed agent wallet (one per account; idempotent). Returns the wallet's Solana address. Fund it with USDC to pay for the paid tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "laso_agent_wallet_transfer",
+      "description": "Transfer USDC out of your managed agent wallet to any Solana address, or to any Base address by setting destination_network to base (bridged over CCTP, minimum 1 USDC, maximum your spend limit; the recipient receives the amount less a 0.01% bridge fee, usually within a minute). Use this to pay someone or to move funds to another wallet you control.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "destination_address": {
+            "type": "string",
+            "description": "Address to send the USDC to: a Solana address, or a 0x address when destination_network is base."
+          },
+          "destination_network": {
+            "type": "string",
+            "enum": ["solana", "base"],
+            "description": "Chain the destination address is on (default solana). base delivers native USDC on Base."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Decimal USDC amount to send, as a string (e.g. 25.50)."
+          }
+        },
+        "required": ["destination_address", "amount"]
+      }
+    },
+    {
+      "name": "laso_pay_x402_endpoint",
+      "description": "Pay ANY external x402-paywalled endpoint from your managed agent wallet: the target's 402 challenge is settled in USDC and the response body is returned, with the settlement transaction as txHash. The wallet balance can take up to a minute to reflect a payment, so confirm with txHash rather than an immediate balance read. Use the guardrail arguments to pin what you agreed to pay. For Laso's own paid routes, prefer their dedicated tools instead.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full https URL of the x402 endpoint to call and pay."
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method (default GET)."
+          },
+          "params": {
+            "type": "object",
+            "description": "Query parameters to append to the URL."
+          },
+          "body": {
+            "type": "object",
+            "description": "JSON request body (for POST/PUT)."
+          },
+          "max_amount_usdc": {
+            "type": "number",
+            "description": "Refuse to settle if the endpoint asks for more USDC than this."
+          },
+          "expected_asset": {
+            "type": "string",
+            "description": "Refuse to settle in any other asset (e.g. a USDC mint/contract address)."
+          },
+          "expected_network": {
+            "type": "string",
+            "description": "Refuse to settle on any other network (CAIP-2 id)."
+          },
+          "expected_pay_to": {
+            "type": "string",
+            "description": "Refuse to settle to any other receiving address."
+          }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "laso_search_docs",
+      "description": "Search the Laso Finance agent docs (SKILL.md and the full API reference). Returns the most relevant sections. Use this for anything the tool descriptions don't answer: auth flows, funding, fees, webhooks, error handling.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search terms, e.g. fund managed wallet, or: gift card fees."
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
