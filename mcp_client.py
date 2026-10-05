@@ -1,14 +1,12 @@
-"""Forwards one tool call to the Laso MCP server with the user's API key."""
+"""Forwards one tool call to the Laso MCP server with the human's Laso key."""
 
 import json
 import urllib.error
 import urllib.request
 
-from agent.secret_scope import get_secret
+from . import sign_in
 
 MCP_URL = "https://laso.finance/mcp"
-KEY_NAME = "LASO_API_KEY"
-DASHBOARD_URL = "https://laso.finance/agent/dashboard"
 USER_AGENT = "Hermes (laso-finance plugin)"
 
 # Paid tools settle on-chain before they answer, so allow well past a normal
@@ -38,9 +36,9 @@ def _post(api_key: str, body: dict) -> dict:
 
 def call_tool(name: str, arguments: dict) -> str:
     """Call MCP tool ``name`` and return its result as a JSON string."""
-    api_key = (get_secret(KEY_NAME, "") or "").strip()
-    if not api_key:
-        return _error(f"{KEY_NAME} is not set. Ask your human to create a key at {DASHBOARD_URL}.")
+    not_connected = sign_in.connect()
+    if not_connected:
+        return not_connected
 
     # The server is stateless, so a tools/call needs no initialize handshake.
     body = {
@@ -50,13 +48,12 @@ def call_tool(name: str, arguments: dict) -> str:
         "params": {"name": name, "arguments": arguments},
     }
     try:
-        reply = _post(api_key, body)
+        reply = _post(sign_in.current_key(), body)
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            return _error(
-                f"Laso rejected {KEY_NAME}. It may have been revoked. "
-                f"Ask your human for a new key from {DASHBOARD_URL}."
-            )
+            # The key was revoked from the dashboard. Drop it and sign in again.
+            sign_in.forget_key()
+            return sign_in.connect() or _error("Laso rejected the saved key. Try again.")
         detail = exc.read().decode("utf-8", "replace")[:500]
         return _error(f"Laso returned HTTP {exc.code}: {detail}")
     except (urllib.error.URLError, TimeoutError) as exc:

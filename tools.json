@@ -1,5 +1,5 @@
 {
-  "instructions": "Laso Finance lets agents move real dollars: prepaid cards, gift cards, push-to-card, Venmo/PayPal and bank payouts, funded with USDC. These tools mirror the x402 HTTP API at https://laso.finance (contract: https://laso.finance/openapi.json) and are generated from it, so they always match the deployed API.\n\nFIRST CALL: run announce_connection before any other Laso tool, once per setup. A human just pasted your credential into their terminal and is watching a \"waiting for your agent to connect\" screen; that call is what tells them it worked, names you in their dashboard, and starts a session in their activity stream. It also returns your wallet's funding state, so it doubles as your setup check. Introduce yourself with agent_name and message.\n\nAuthentication is handled by this plugin: it sends the LASO_API_KEY your human set up (a lasoak_ key from https://laso.finance/agent/dashboard). Never ask for the key or pass it as a tool argument. Every Laso tool is registered with a laso_ prefix, so a tool named in these instructions or in a tool description as X is laso_X.\n\nPaid tools (marked PAID ROUTE) settle their USDC price automatically from your managed agent wallet. Before the first paid call, run get_agent_wallet (create_agent_wallet if needed) and fund the wallet's Solana address with USDC.\n\nUse search_docs for anything else: fees, limits, webhooks, KYC, refunds, error handling.",
+  "instructions": "Laso Finance lets agents move real dollars: prepaid cards, gift cards, push-to-card, Venmo/PayPal and bank payouts, funded with USDC. These tools mirror the x402 HTTP API at https://laso.finance (contract: https://laso.finance/openapi.json) and are generated from it, so they always match the deployed API.\n\nFIRST CALL: run laso_announce_connection before any other Laso tool, once per setup. It names you in your human's dashboard, starts a session in their activity stream, and returns your wallet's funding state, so it doubles as your setup check. Introduce yourself with agent_name and message.\n\nAuthentication is handled by this plugin. Until your human has connected their Laso account, every Laso tool returns {\"error\": \"laso_not_connected\"} with a link and a short code. Give your human both, exactly as returned, in your next reply, and do not open the link yourself. Once they say they approved, call the same tool again: it finishes the sign-in and runs. Never ask your human for an API key or pass one as a tool argument. Every Laso tool is registered with a laso_ prefix, so a tool named in these instructions or in a tool description as X is laso_X. Tools that move money ask your human to approve each call in Hermes before they run.\n\nPaid tools (marked PAID ROUTE) settle their USDC price automatically from your managed agent wallet. Before the first paid call, run get_agent_wallet (create_agent_wallet if needed) and fund the wallet's Solana address with USDC.\n\nUse search_docs for anything else: fees, limits, webhooks, KYC, refunds, error handling.",
   "tools": [
     {
       "name": "laso_get_version",
@@ -7,7 +7,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_refresh_token",
@@ -26,7 +27,8 @@
           }
         },
         "required": ["grant_type", "refresh_token"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_order_card",
@@ -48,7 +50,8 @@
           }
         },
         "required": ["amount"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_get_card_data",
@@ -75,7 +78,8 @@
             "description": "Reloadable cards only, and only for a card the account holder created in a DIFFERENT app: pass the approval_id from a prior details_approval response once they have approved it. Cards created through /create-reloadable-card are Laso-issued and never require this."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_list_card_transactions",
@@ -96,7 +100,8 @@
             "description": "Filter by status, e.g. `pending`, `settled`, `declined`, `reversed`, `refunded`."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_card_deposit_address",
@@ -104,7 +109,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_saved_cards",
@@ -112,7 +118,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_saved_card_link",
@@ -120,7 +127,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_buy_with_saved_card",
@@ -182,7 +190,8 @@
             }
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_purchase_turn",
@@ -196,7 +205,8 @@
           }
         },
         "required": ["turn_id"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_purchase_conversation",
@@ -210,7 +220,8 @@
           }
         },
         "required": ["conversation_id"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_reloadable_card",
@@ -228,7 +239,8 @@
           }
         },
         "required": ["usd_amount"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_account_balance",
@@ -236,7 +248,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_kyc_status",
@@ -244,7 +257,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_kyc_link",
@@ -252,7 +266,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_register_webhook",
@@ -266,7 +281,8 @@
           }
         },
         "required": ["url"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_webhook",
@@ -274,7 +290,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_delete_webhook",
@@ -282,7 +299,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_withdraw",
@@ -301,7 +319,8 @@
           }
         },
         "required": ["amount", "solana_address"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_get_withdrawal_status",
@@ -314,7 +333,8 @@
             "description": "Get a specific withdrawal by ID. If omitted, returns all withdrawals."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_refresh_card_data",
@@ -333,7 +353,8 @@
           }
         },
         "required": ["card_id"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_order_intl_card",
@@ -349,7 +370,8 @@
           }
         },
         "required": ["amount"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_cancel_intl_order",
@@ -363,7 +385,8 @@
           }
         },
         "required": ["card_id"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_search_merchants",
@@ -383,7 +406,8 @@
           }
         },
         "required": ["q"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_start_signup",
@@ -402,7 +426,8 @@
             "example": "ada-prod"
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_signup_status",
@@ -420,7 +445,8 @@
           }
         },
         "required": ["claim_token", "claim_code"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_auth_link",
@@ -428,7 +454,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_send_feedback",
@@ -465,7 +492,8 @@
           }
         },
         "required": ["feedback"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_list_address_book",
@@ -473,7 +501,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_save_address_book_entry",
@@ -493,7 +522,8 @@
           }
         },
         "required": ["address", "name"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_delete_address_book_entry",
@@ -506,7 +536,8 @@
             "description": "The address to remove."
           }
         }
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_push_to_card",
@@ -528,7 +559,8 @@
           }
         },
         "required": ["amount"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_send_payment",
@@ -566,7 +598,8 @@
           }
         },
         "required": ["amount", "platform", "recipient_id"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_fund_card_balance",
@@ -582,7 +615,8 @@
           }
         },
         "required": ["amount"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_withdraw_card_balance",
@@ -602,7 +636,8 @@
           }
         },
         "required": ["amount", "destination_address"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_list_payment_recipients",
@@ -622,7 +657,8 @@
           }
         },
         "required": ["platform"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_update_payment_recipient",
@@ -649,7 +685,8 @@
           }
         },
         "required": ["platform", "recipient_id"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_delete_payment_recipient",
@@ -667,7 +704,8 @@
             "description": "Required unless sent in the body. The entry's `recipient_id` from `GET /payment-recipients` (an opaque id, not the phone number or email)."
           }
         }
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_get_payment_status",
@@ -684,7 +722,8 @@
             "description": "List every payout to one saved recipient. This is the `recipient_id` returned by `GET /payment-recipients`, not the phone number or email."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_send_bank_payment",
@@ -704,7 +743,8 @@
           }
         },
         "required": ["amount", "destination_id"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_search_gift_cards",
@@ -729,7 +769,8 @@
             "description": "Category to filter by (e.g. \"ecommerce\", \"travel\", \"gaming\"). See the `facets.categories` array in any response for the full list of valid values."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_order_gift_card",
@@ -753,7 +794,8 @@
           }
         },
         "required": ["amount", "laso_server_id"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_create_banking_profile",
@@ -761,7 +803,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_banking_profile_status",
@@ -769,7 +812,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_banking_application",
@@ -777,7 +821,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_update_banking_application_details",
@@ -791,7 +836,8 @@
           }
         },
         "required": ["details"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_upload_banking_document",
@@ -827,7 +873,8 @@
           }
         },
         "required": ["documentType", "fileType", "fileContent", "country"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_submit_banking_application",
@@ -835,7 +882,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_banking_account",
@@ -878,7 +926,8 @@
           }
         },
         "required": ["accountType"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_list_banking_accounts",
@@ -886,7 +935,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_banking_recipient",
@@ -905,7 +955,8 @@
           }
         },
         "required": ["name"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_add_banking_destination",
@@ -932,7 +983,8 @@
           }
         },
         "required": ["recipientId", "destination"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_list_banking_recipients",
@@ -940,7 +992,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_update_banking_destination",
@@ -959,7 +1012,8 @@
           }
         },
         "required": ["destinationId", "nickname"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_delete_banking_recipient",
@@ -973,7 +1027,8 @@
           }
         },
         "required": ["recipientId"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_get_banking_transaction",
@@ -987,7 +1042,8 @@
           }
         },
         "required": ["transactionId"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_list_banking_transactions",
@@ -995,7 +1051,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_exchange_api_key",
@@ -1010,7 +1067,8 @@
           }
         },
         "required": ["api_key"]
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_agent_spend_limit",
@@ -1018,7 +1076,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_agent_api_key",
@@ -1032,7 +1091,8 @@
             "example": "Claude Code"
           }
         }
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_announce_connection",
@@ -1049,7 +1109,8 @@
             "description": "A short greeting shown to your human, in your own words. Max 280 characters."
           }
         }
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_get_agent_wallet",
@@ -1057,7 +1118,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_create_agent_wallet",
@@ -1065,7 +1127,8 @@
       "parameters": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_agent_wallet_transfer",
@@ -1088,7 +1151,8 @@
           }
         },
         "required": ["destination_address", "amount"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_pay_x402_endpoint",
@@ -1130,7 +1194,8 @@
           }
         },
         "required": ["url"]
-      }
+      },
+      "requires_approval": true
     },
     {
       "name": "laso_search_docs",
@@ -1144,7 +1209,8 @@
           }
         },
         "required": ["query"]
-      }
+      },
+      "requires_approval": false
     }
   ]
 }
