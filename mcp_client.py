@@ -31,7 +31,30 @@ def _post(api_key: str, body: dict) -> dict:
         },
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-        return json.loads(response.read().decode("utf-8"))
+        text = response.read().decode("utf-8")
+        content_type = response.headers.get("Content-Type", "")
+    if content_type.startswith("text/event-stream"):
+        return _last_sse_message(text)
+    return json.loads(text)
+
+
+def _last_sse_message(text: str) -> dict:
+    """The JSON-RPC reply from a Streamable HTTP response sent as server-sent events.
+
+    MCP clients must accept both JSON and an event stream, and the server picks. The reply is the
+    last ``message`` event; each event's ``data:`` lines join with newlines into one JSON document.
+    """
+    reply = None
+    data: list[str] = []
+    for line in text.splitlines() + [""]:
+        if line.startswith("data:"):
+            data.append(line[5:].removeprefix(" "))
+        elif line == "" and data:
+            reply = json.loads("\n".join(data))
+            data = []
+    if reply is None:
+        raise ValueError("The event stream carried no message.")
+    return reply
 
 
 def call_tool(name: str, arguments: dict) -> str:

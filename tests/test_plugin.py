@@ -55,17 +55,19 @@ class FakeState:
 
 
 class FakeResponse(io.BytesIO):
-    def __init__(self, body: dict, status: int = 200):
-        super().__init__(json.dumps(body).encode())
+    def __init__(self, body: dict | str, status: int = 200, content_type: str = "application/json"):
+        super().__init__((body if isinstance(body, str) else json.dumps(body)).encode())
         self.status = status
+        self.headers = {"Content-Type": content_type}
 
 
 class FakeLaso:
     """Answers urlopen like laso.finance. `token_replies` are returned in order by /oauth/token."""
 
-    def __init__(self, token_replies=(), mcp_status=200):
+    def __init__(self, token_replies=(), mcp_status=200, mcp_as_sse=False):
         self.token_replies = list(token_replies)
         self.mcp_status = mcp_status
+        self.mcp_as_sse = mcp_as_sse
         self.paths = []
 
     def urlopen(self, request, timeout=None):
@@ -89,7 +91,13 @@ class FakeLaso:
         if path == "/mcp":
             if self.mcp_status != 200:
                 raise urllib.error.HTTPError(request.full_url, self.mcp_status, "", {}, io.BytesIO(b"{}"))
-            return FakeResponse({"result": {"content": [{"type": "text", "text": '{"balance": 12.5}'}]}})
+            reply = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": '{"balance": 12.5}'}]}}
+            if self.mcp_as_sse:
+                # What laso.finance/mcp actually sends: one SSE message event.
+                return FakeResponse(
+                    f"event: message\ndata: {json.dumps(reply)}\n\n", content_type="text/event-stream"
+                )
+            return FakeResponse(reply)
         raise AssertionError(f"unexpected request to {path}")
 
 
@@ -171,6 +179,11 @@ class SignInTest(PluginTestCase):
 class ForwarderTest(PluginTestCase):
     def test_a_connected_call_returns_the_tool_result(self):
         self.serve(FakeLaso())
+        ENV["LASO_API_KEY"] = "lasoak_existing"
+        self.assertEqual(json.loads(mcp_client.call_tool("get_account_balance", {})), {"balance": 12.5})
+
+    def test_an_event_stream_reply_is_read_like_json(self):
+        self.serve(FakeLaso(mcp_as_sse=True))
         ENV["LASO_API_KEY"] = "lasoak_existing"
         self.assertEqual(json.loads(mcp_client.call_tool("get_account_balance", {})), {"balance": 12.5})
 
