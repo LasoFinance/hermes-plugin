@@ -410,6 +410,24 @@
       "requires_approval": false
     },
     {
+      "name": "laso_get_pricing",
+      "description": "Get the fee schedule\n\nReturns the fee and limits of every paid product: the route, the `amount` range it accepts, the fee rate, and the minimum fee. Free, no auth or payment header, so you can budget before you have an account.\n\nFees are added on top of `amount`. The total is `amount + max(amount × fee_rate, min_fee)`, rounded up to the cent. The international card's `fee_rate` is the rate in effect now, including any running fee promotion. For the exact total of one specific request, read the `amount` in that route's 402 challenge: requesting a paid route without a payment header returns the quote and charges nothing.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_get_supported_countries",
+      "description": "Get supported countries\n\nReturns where each product can be used or sent, as ISO 3166-1 alpha-2 country codes. Free, no auth or payment header.\n\nThe USA prepaid card, Venmo payments, and bank payments are U.S. only. PayPal pays recipients in every country Laso serves; `countries_by_platform` separates it from Venmo. Push to card pays out to debit cards in the U.S. (`USD`), the euro area (`EUR`), and the U.K. (`GBP`); `countries_by_currency` maps each currency to its countries. The gift card list is the live catalog's: pass one of its codes as `country` to `GET /order-gift-card`. The international prepaid card has no fixed list (`countries: null`); check a merchant with `GET /search-merchants?card_type=Non-Reloadable International`.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_start_signup",
       "description": "Start a signup for a human with no Laso account\n\nBegins account creation for a human who does not have a Laso account yet. Requires no authentication, because the caller has no account.\n\nThis does **not** create the account. An agent cannot: the account is created by Privy in the human's own browser, so it belongs to them and not to their agent. What this returns is a `claim_url` to hand over.\n\nGive your human the `claim_url` verbatim in your very next reply (send `message_for_human` if unsure what to say), and do not open it yourself. Then poll `GET /signup-status`, which holds the connection open until they finish and hands you your `lasoak_` API key.\n\nRate limited per IP.",
       "parameters": {

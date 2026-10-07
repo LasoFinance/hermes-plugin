@@ -38,6 +38,8 @@ provides_tools:
   - laso_order_intl_card
   - laso_cancel_intl_order
   - laso_search_merchants
+  - laso_get_pricing
+  - laso_get_supported_countries
   - laso_start_signup
   - laso_get_signup_status
   - laso_get_auth_link
