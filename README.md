@@ -18,7 +18,7 @@ There is no key to paste. Start a new session and ask your agent to connect to L
 
 1. Your agent calls a Laso tool and gets back a link and a short code. It passes both to you.
 2. Open the link on any device: your laptop, your phone, wherever you are signed in. Sign in to Laso (or create an account in the same step), check that the code matches, and approve.
-3. Tell your agent you approved. Its next Laso call finishes connecting and runs.
+3. Tell your agent you approved. Its next Laso call finishes connecting, and the call after that runs (with an approval prompt first, if the tool needs one).
 
 This works the same in the terminal, in Hermes Desktop, over SSH, and through the messaging gateway, because nothing needs a browser on the machine Hermes runs on.
 
@@ -26,9 +26,11 @@ The connection is an ordinary Laso API key labelled "Hermes". You can see and re
 
 ## Approvals
 
-Every tool that moves money or hands out a credential asks you to approve it in Hermes before it runs: ordering cards, buying gift cards, sending payouts, withdrawing, transferring from the agent wallet, paying other x402 endpoints, cancelling orders, deleting saved recipients, and creating API keys. The prompt shows the tool and its arguments, such as the amount and the recipient. Reading balances, card details, and statuses never asks.
+Every tool that moves money or hands out a credential asks you to approve it in Hermes before it runs: ordering cards, buying gift cards, sending payouts, withdrawing, transferring from the agent wallet, paying other x402 endpoints, creating reloadable cards, cancelling orders, deleting saved recipients, registering a webhook, and creating API keys. The prompt shows the tool and its arguments, such as the amount and the recipient. Reading balances, card details, and statuses never asks.
 
 If nobody is there to answer (a cron job, an unattended run), the call is blocked by default. Hermes's `approvals.cron_mode` and `approvals.unattended_mode` settings decide this, so a payout job you schedule on purpose can be allowed there.
+
+If you turn approvals off in Hermes (`approvals.mode: off`, the Desktop "Approvals: off" toggle, or yolo mode), Hermes skips these prompts too, and every Laso call runs without asking.
 
 ## Funding
 

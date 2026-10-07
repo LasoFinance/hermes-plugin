@@ -1,7 +1,8 @@
 """Asks the human to approve every Laso call that moves money, before it runs.
 
 A ``pre_tool_call`` hook returns Hermes's ``approve`` directive for the tools ``tools.json`` marks
-``requires_approval``: paid tools, withdrawals, transfers, cancels, deletes, and minting an API key. Hermes shows the message in
+``requires_approval``: paid tools, withdrawals, transfers, cancels, deletes, creating a reloadable card,
+registering a webhook, and minting an API key. Hermes shows the message in
 its own approval prompt, and a denial, a timeout, or an unattended run with nobody to ask blocks the
 call. Read-only tools are never interrupted.
 """
@@ -27,7 +28,8 @@ def _summarize(args: dict) -> str:
 def make_hook(approval_tools: set[str]):
     def pre_tool_call(tool_name: str = "", args: dict | None = None, **kwargs):
         del kwargs
-        # Not connected yet: the call only returns the sign-in link, so there is nothing to approve.
+        # Not connected yet: the call only signs in and never reaches Laso (mcp_client.call_tool
+        # returns before posting on the call that completes sign-in), so there is nothing to approve.
         if tool_name not in approval_tools or not sign_in.current_key():
             return None
         summary = _summarize(args or {})

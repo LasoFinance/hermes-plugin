@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "laso_get_version",
-      "description": "Get the current docs version\n\nReturns the current content-hash version of the Laso Finance agent docs (`SKILL.md`, `openapi.json`, `llms.txt`, `llms-full.txt`, `ai-plugin.json`). Free, no auth or payment header.\n\nAgents aggressively cache these docs, so use this to detect a stale cache: if the `docs_version` you last saw differs from the value returned here, refetch the docs. Every API response also carries this value in the `X-Laso-Docs-Version` response header, alongside `X-Laso-Docs-Manifest`, which points at the authoritative freshness beacon at `https://laso.finance/.well-known/docs-version.json`.\n\nThis route is also the `status` target of the API catalog at `https://laso.finance/.well-known/api-catalog` (RFC 9727), which every response advertises via a `Link` header with `rel=\"api-catalog\"`.",
+      "description": "Get the current docs version\n\nReturns the current API contract version (`api_version`), the versioning and deprecation policy, and the content-hash version of the Laso Finance agent docs (`SKILL.md`, `openapi.json`, `llms.txt`, `llms-full.txt`, `ai-plugin.json`). Free, no auth or payment header.\n\nAgents aggressively cache these docs, so use this to detect a stale cache: if the `docs_version` you last saw differs from the value returned here, refetch the docs. Every API response also carries this value in the `X-Laso-Docs-Version` response header, alongside `X-Laso-Docs-Manifest`, which points at the authoritative freshness beacon at `https://laso.finance/.well-known/docs-version.json`.\n\nThis route is also the `status` target of the API catalog at `https://laso.finance/.well-known/api-catalog` (RFC 9727), which every response advertises via a `Link` header with `rel=\"api-catalog\"`.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -240,7 +240,7 @@
         },
         "required": ["usd_amount"]
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_get_account_balance",
@@ -282,7 +282,7 @@
         },
         "required": ["url"]
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_get_webhook",

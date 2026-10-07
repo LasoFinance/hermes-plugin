@@ -59,9 +59,19 @@ def _last_sse_message(text: str) -> dict:
 
 def call_tool(name: str, arguments: dict) -> str:
     """Call MCP tool ``name`` and return its result as a JSON string."""
+    had_key = bool(sign_in.current_key())
     not_connected = sign_in.connect()
     if not_connected:
         return not_connected
+    # The approval hook ran before this call had a key, so it let the call through ungated. Stop
+    # here and let the agent call again, so that call passes through the approval prompt.
+    if not had_key:
+        return json.dumps(
+            {
+                "connected": True,
+                "next_step": "Laso is now connected. Call the tool again to run it.",
+            }
+        )
 
     # The server is stateless, so a tools/call needs no initialize handshake.
     body = {

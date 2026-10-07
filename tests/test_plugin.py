@@ -187,6 +187,16 @@ class ForwarderTest(PluginTestCase):
         ENV["LASO_API_KEY"] = "lasoak_existing"
         self.assertEqual(json.loads(mcp_client.call_tool("get_account_balance", {})), {"balance": 12.5})
 
+    def test_the_call_that_completes_sign_in_does_not_run_the_tool(self):
+        laso = self.serve(FakeLaso(token_replies=[(200, {"access_token": "lasoak_new"})]))
+        mcp_client.call_tool("send_payment", {"amount": 25})
+        self.clock += 10
+        result = json.loads(mcp_client.call_tool("send_payment", {"amount": 25}))
+        self.assertTrue(result["connected"])
+        self.assertIn("again", result["next_step"])
+        self.assertNotIn("/mcp", laso.paths)
+        self.assertEqual(json.loads(mcp_client.call_tool("get_account_balance", {})), {"balance": 12.5})
+
     def test_a_revoked_key_is_dropped_and_sign_in_restarts(self):
         self.serve(FakeLaso(mcp_status=401))
         ENV["LASO_API_KEY"] = "lasoak_revoked"
@@ -215,6 +225,7 @@ class ApprovalsTest(PluginTestCase):
         self.assertIsNone(self.hook(tool_name="laso_get_account_balance", args={}))
 
     def test_nothing_to_approve_before_sign_in(self):
+        # Safe only because call_tool never posts on a call that started without a key.
         self.assertIsNone(self.hook(tool_name="laso_send_payment", args={"amount": 25}))
 
 
@@ -224,7 +235,16 @@ class ManifestTest(unittest.TestCase):
         for tool in catalog["tools"]:
             self.assertIsInstance(tool["requires_approval"], bool, tool["name"])
         approved = {tool["name"] for tool in catalog["tools"] if tool["requires_approval"]}
-        self.assertTrue({"laso_send_payment", "laso_withdraw", "laso_create_agent_api_key"} <= approved)
+        self.assertTrue(
+            {
+                "laso_send_payment",
+                "laso_withdraw",
+                "laso_create_agent_api_key",
+                "laso_create_reloadable_card",
+                "laso_register_webhook",
+            }
+            <= approved
+        )
         self.assertNotIn("laso_get_account_balance", approved)
 
 
