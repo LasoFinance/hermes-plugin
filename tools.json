@@ -244,7 +244,7 @@
     },
     {
       "name": "laso_get_account_balance",
-      "description": "Get account balance\n\nReturns the current account balance and total deposits for the authenticated user.",
+      "description": "Get account balance\n\nReturns the Laso account balance and total deposits for the authenticated user, plus the managed agent wallet's balance under `agent_wallet` so both are visible in one call.\n\nThese are two separate balances. The account balance is a ledger held by Laso. The agent wallet is an on-chain wallet that holds USDC. A paid request moves USDC from the wallet to Laso, so it is recorded on the account balance as a deposit and then debited by the purchase. `total_deposits` therefore includes purchases paid from the agent wallet, and a `balance` of 0 after a purchase is expected. Funds still held are `agent_wallet.balance_usdc` plus `balance`.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -304,7 +304,7 @@
     },
     {
       "name": "laso_withdraw",
-      "description": "Withdraw from account balance\n\nInitiate a withdrawal from the user's account balance. The USDC is sent on Solana to the `solana_address` you supply; the destination is never inferred, so the address is required.\n\nThis is an asynchronous operation. A successful call answers `202 Accepted`: the withdrawal is created in a `pending` state and sent within a few minutes. Poll the returned `status_url` (`GET /get-withdrawal-status?withdrawal_id=...`) until `state` reaches a terminal value rather than treating the 202 as completion.",
+      "description": "Withdraw from account balance\n\nInitiate a withdrawal from the user's account balance. The USDC is sent on Solana to the `solana_address` you supply; the destination is never inferred, so the address is required.\n\nThis is an asynchronous operation. A successful call answers `202 Accepted`: the withdrawal is created in a `pending` state and sent within a few minutes. Poll the returned `status_url` (`GET /get-withdrawal-status?withdrawal_id=...`) until `state` reaches a terminal value rather than treating the 202 as completion.\n\nThis draws only on the Laso account balance, never on the managed agent wallet. USDC sitting in the agent wallet is moved with `agentWalletTransfer` instead. When the account balance is too low but the agent wallet holds funds, the 400 response says so and reports both figures.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1132,7 +1132,7 @@
     },
     {
       "name": "laso_get_agent_wallet",
-      "description": "Get your managed agent wallet: whether one exists, its Solana address, its USDC balance, and whether it needs funding. Paid tools draw from this wallet, so check it before your first paid call. Fund it by sending USDC (Solana) to wallet_address.",
+      "description": "Get your managed agent wallet: whether one exists, its funding addresses on Solana and Base, its USDC balance, and whether it needs funding. Paid tools draw from this wallet, so check it before your first paid call. Fund it by sending USDC on Solana to wallet_address, or USDC on Base to base_wallet_address; both land in the same balance. balance_usdc is the total across the wallet's Solana and Base sides, which every payment and transfer can draw on, split as solana_balance_usdc and base_balance_usdc; base_balance_usdc is null when its live chain read fails. These on-chain balances are separate from the Laso account balance that get_account_balance reports: a paid call shows up there as a deposit followed by a debit, so an account balance of 0 after a purchase is expected.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1141,7 +1141,7 @@
     },
     {
       "name": "laso_create_agent_wallet",
-      "description": "Create your managed agent wallet (one per account; idempotent). Returns the wallet's Solana address. Fund it with USDC to pay for the paid tools.",
+      "description": "Create your managed agent wallet, or return the existing one (idempotent). Returns the Solana side as walletId and address, and the Base side as baseWalletId and baseAddress. Rarely needed: the dashboard provisions the wallet, and get_agent_wallet creates a missing Base side. Fund either address with USDC to pay for the paid tools.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1150,7 +1150,7 @@
     },
     {
       "name": "laso_agent_wallet_transfer",
-      "description": "Transfer USDC out of your managed agent wallet to any Solana address, or to any Base address by setting destination_network to base (bridged over CCTP, minimum 1 USDC, maximum your spend limit; the recipient receives the amount less a 0.01% bridge fee, usually within a minute). Use this to pay someone or to move funds to another wallet you control.",
+      "description": "Transfer USDC out of your managed agent wallet to any Solana address, or to any Base address by setting destination_network to base (bridged over CCTP, minimum 1 USDC, maximum your spend limit; the recipient receives the amount less a 0.01% bridge fee, usually within a minute). It draws on the whole balance: if the Solana side is short, the difference is pulled back from Base first (usually about 15 seconds). Use this to pay someone or to move funds to another wallet you control. This is the only way to move the agent wallet's USDC; withdraw draws on the separate Laso account balance instead.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1173,8 +1173,28 @@
       "requires_approval": true
     },
     {
+      "name": "laso_move_agent_wallet_funds",
+      "description": "Move USDC between your managed agent wallet's own Solana and Base sides. from is the network the USDC leaves; it arrives on the other, less a 0.075% fee taken from amount (minimum 0.10 USDC). Returns once it has arrived, usually within 10 seconds, with sentUsdc and receivedUsdc. Optional: payments and transfers already move what they need, so use this to fund Base ahead of a run of Base payments (none of them then waits on a move) or to bring everything back to Solana. The money never leaves your own wallets.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "enum": ["solana", "base"],
+            "description": "The network the USDC leaves."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Decimal USDC amount to move, as a string (e.g. 5). The fee comes out of it."
+          }
+        },
+        "required": ["from", "amount"]
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_pay_x402_endpoint",
-      "description": "Pay ANY external x402-paywalled endpoint from your managed agent wallet: the target's 402 challenge is settled in USDC and the response body is returned, with the settlement transaction as txHash. The wallet balance can take up to a minute to reflect a payment, so confirm with txHash rather than an immediate balance read. Use the guardrail arguments to pin what you agreed to pay. For Laso's own paid routes, prefer their dedicated tools instead.",
+      "description": "Pay ANY external x402-paywalled endpoint from your managed agent wallet: the target's 402 challenge is settled in USDC and the response body is returned, with the settlement transaction as txHash. Endpoints settling in USDC on Solana or on Base mainnet (eip155:8453) are both paid from the same balance with nothing to set up: when a Base payment needs more than the Base side holds, the difference is moved over from Solana just before signing (usually under 10 seconds, 0.075% of the amount moved). No ETH is needed for gas; other EVM networks are refused. If the endpoint offers both, pin expected_network to choose. txHash is the Base transaction hash for a Base payment and the Solana signature for a Solana one. The wallet balance can take up to a minute to reflect a payment, so confirm with txHash rather than an immediate balance read. Use the guardrail arguments to pin what you agreed to pay. For Laso's own paid routes, prefer their dedicated tools instead.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1200,11 +1220,11 @@
           },
           "expected_asset": {
             "type": "string",
-            "description": "Refuse to settle in any other asset (e.g. a USDC mint/contract address)."
+            "description": "Refuse to settle in any other asset (e.g. a USDC mint/contract address; USDC on Base is 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)."
           },
           "expected_network": {
             "type": "string",
-            "description": "Refuse to settle on any other network (CAIP-2 id)."
+            "description": "Refuse to settle on any other network (CAIP-2 id): eip155:8453 for Base, solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp for Solana. Pin it when an endpoint offers both, to choose which wallet pays."
           },
           "expected_pay_to": {
             "type": "string",
