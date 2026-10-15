@@ -76,6 +76,8 @@ provides_tools:
   - laso_exchange_api_key
   - laso_get_agent_spend_limit
   - laso_create_agent_api_key
+  - laso_list_agent_api_keys
+  - laso_revoke_agent_api_key
   - laso_announce_connection
   - laso_get_agent_wallet
   - laso_create_agent_wallet

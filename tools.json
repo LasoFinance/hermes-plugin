@@ -1113,6 +1113,31 @@
       "requires_approval": true
     },
     {
+      "name": "laso_list_agent_api_keys",
+      "description": "List API keys\n\nLists the account's live `lasoak_` API keys, newest first: each key's `keyId`, `label`, `createdAt` and `lastUsedAt` (milliseconds). Revoked keys are left out. The raw keys are never returned, since only their hashes are stored. Connections approved through the MCP server's OAuth flow appear here too, labelled with the client's name.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_revoke_agent_api_key",
+      "description": "Revoke an API key\n\nRevokes one `lasoak_` API key, the same action as Revoke on the dashboard. A revoked key can no longer be exchanged for a session at `agentAuth`, and its MCP event subscriptions stop. A session already minted from the key is not cut off: its `id_token` lasts out its hour. Revoking a key that is already revoked succeeds and changes nothing.\n\nTo revoke a key you hold the raw value of, you can instead POST it as `token` to `/oauth/revoke` (RFC 7009) without looking up its `keyId`.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "description": "The key's id, as returned by `createAgentApiKey` or `listAgentApiKeys`.",
+            "example": "3f1c9a0e5b7d2c4f6a8e0b1d3c5f7a9e2b4d6f8a0c1e3b5d7f9a1c3e5b7d9f0a"
+          }
+        },
+        "required": ["keyId"]
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_announce_connection",
       "description": "Call this FIRST, before any other Laso tool. Your human is watching a screen that waits for you to connect; this is what resolves it, names you in their dashboard, and starts a session in their activity stream. Introduce yourself with agent_name and message. Also returns your wallet funding state, so it doubles as your setup check.",
       "parameters": {
