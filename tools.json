@@ -1138,6 +1138,15 @@
       "requires_approval": false
     },
     {
+      "name": "laso_revoke_unused_agent_api_keys",
+      "description": "Revoke all unused API keys\n\nRevokes every live `lasoak_` API key on the account that no agent has used yet: never exchanged at `agentAuth` and never used to connect, the keys the dashboard lists as \"Has not signed in yet\". The same action as Revoke all on the dashboard. Keys any agent has used are left alone. A key you just issued and have not used yet counts as unused, so do not call this while a new agent is still setting up.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_announce_connection",
       "description": "Call this FIRST, before any other Laso tool. Your human is watching a screen that waits for you to connect; this is what resolves it, names you in their dashboard, and starts a session in their activity stream. Introduce yourself with agent_name and message. Also returns your wallet funding state, so it doubles as your setup check.",
       "parameters": {
