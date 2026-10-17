@@ -20,6 +20,9 @@ provides_tools:
   - laso_get_card_data
   - laso_list_card_transactions
   - laso_get_card_deposit_address
+  - laso_get_card_issuer_status
+  - laso_start_card_issuer_link
+  - laso_verify_card_issuer_link
   - laso_get_saved_cards
   - laso_create_saved_card_link
   - laso_buy_with_saved_card
