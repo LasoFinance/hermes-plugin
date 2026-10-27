@@ -161,6 +161,15 @@
       "requires_approval": false
     },
     {
+      "name": "laso_disconnect_card_issuer",
+      "description": "Unlink the card issuer\n\nRemoves the link between this Laso account and the card issuer, the same as the disconnect button in the dashboard. The card and its balance stay with the card issuer untouched; only Laso's link is removed.\n\n**What stops working.** Every reloadable card route and saved card purchases (`POST /buy-with-saved-card`) need the link, so they fail until the account holder links again with `POST /start-card-issuer-link` and a fresh code that only they can receive. Confirm with the account holder before calling this.\n\nSafe to repeat: an account with no link answers the same way. Afterwards `GET /get-card-issuer-status` reads `not_started`.\n\n**This route is free.**",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_get_saved_cards",
       "description": "List the holder's saved cards\n\nLists the cards the account holder saved themselves: a card they already own, typed once on the card issuer's page and locked behind their passkey. **Nothing is issued or prefunded, and no identity verification is needed.** Every purchase paid with a saved card is approved by the holder on their own device.\n\nThe response carries display fields only, never a card number. An empty `cards` list means nothing is saved yet: call `POST /create-saved-card-link` and send the returned `url` to your human.",
       "parameters": {
@@ -683,6 +692,23 @@
         "required": ["amount"]
       },
       "requires_approval": true
+    },
+    {
+      "name": "laso_fund_card_from_account_balance",
+      "description": "Top up a reloadable card from the account balance\n\nLoad the account holder's reloadable card balance from their Laso account balance, the USDC already credited to the account (read it with `GET /get-account-balance`). `GET /fund-card-balance` takes a new payment; this spends money the account already holds, such as a paid request that could not be fulfilled.\n\n**Free.** The account balance is debited exactly `amount`, and that amount lands on the card balance. Laso delivers it to the holder's deposit address at the card issuer, usually within a minute.\n\n**Tracking.** The response carries a `top_up_id`. Poll `GET /list-card-transactions` until that top-up's status under `top_ups` is `credited`, or `GET /get-card-deposit-address` until `balance` reflects it, then call `POST /create-reloadable-card`. If the delivery fails, the amount is returned to the account balance.\n\n**Amount:** $5 to $10,000, and no more than the account balance.\n\nA linked card issuer account is required (see `POST /start-card-issuer-link`).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 10000,
+            "description": "USD to move from the account balance onto the card balance (min $5, max $10,000)."
+          }
+        },
+        "required": ["amount"]
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_withdraw_card_balance",

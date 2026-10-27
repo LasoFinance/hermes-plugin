@@ -23,6 +23,7 @@ provides_tools:
   - laso_get_card_issuer_status
   - laso_start_card_issuer_link
   - laso_verify_card_issuer_link
+  - laso_disconnect_card_issuer
   - laso_get_saved_cards
   - laso_create_saved_card_link
   - laso_buy_with_saved_card
@@ -53,6 +54,7 @@ provides_tools:
   - laso_push_to_card
   - laso_send_payment
   - laso_fund_card_balance
+  - laso_fund_card_from_account_balance
   - laso_withdraw_card_balance
   - laso_list_payment_recipients
   - laso_update_payment_recipient
