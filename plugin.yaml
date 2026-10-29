@@ -88,6 +88,9 @@ provides_tools:
   - laso_get_agent_wallet
   - laso_create_agent_wallet
   - laso_agent_wallet_transfer
+  - laso_agent_wallet_swap
+  - laso_agent_wallet_swap_quote
+  - laso_search_swap_tokens
   - laso_move_agent_wallet_funds
   - laso_pay_x402_endpoint
   - laso_search_docs

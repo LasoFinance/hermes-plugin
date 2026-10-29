@@ -1240,7 +1240,7 @@
     },
     {
       "name": "laso_get_agent_wallet",
-      "description": "Get your managed agent wallet: whether one exists, its funding addresses on Solana and Base, its USDC balance, and whether it needs funding. Paid tools draw from this wallet, so check it before your first paid call. Fund it by sending USDC on Solana to wallet_address, or USDC on Base to base_wallet_address; both land in the same balance. balance_usdc is the total across the wallet's Solana and Base sides, which every payment and transfer can draw on, split as solana_balance_usdc and base_balance_usdc; base_balance_usdc is null when its live chain read fails. These on-chain balances are separate from the Laso account balance that get_account_balance reports: a paid call shows up there as a deposit followed by a debit, so an account balance of 0 after a purchase is expected.",
+      "description": "Get your managed agent wallet: whether one exists, its funding addresses on Solana and Base, its USDC balance, and whether it needs funding. Paid tools draw from this wallet, so check it before your first paid call. Fund it by sending USDC on Solana to wallet_address, or USDC on Base to base_wallet_address; both land in the same balance. balance_usdc is the total across the wallet's Solana and Base sides, which every payment and transfer can draw on, split as solana_balance_usdc and base_balance_usdc; base_balance_usdc is null when its live chain read fails. These on-chain balances are separate from the Laso account balance that get_account_balance reports: a paid call shows up there as a deposit followed by a debit, so an account balance of 0 after a purchase is expected. tokens lists every asset the Solana side holds, USDC included (mint, symbol, amount, usd_value; mint is native for SOL); send any of them with agent_wallet_transfer by passing mint, or convert them to USDC with agent_wallet_swap.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1258,7 +1258,7 @@
     },
     {
       "name": "laso_agent_wallet_transfer",
-      "description": "Transfer USDC out of your managed agent wallet to any Solana address, or to any Base address by setting destination_network to base (bridged over CCTP, minimum 1 USDC, maximum your spend limit; the recipient receives the amount less a 0.01% bridge fee, usually within a minute). It draws on the whole balance: if the Solana side is short, the difference is pulled back from Base first (usually about 15 seconds). Use this to pay someone or to move funds to another wallet you control. This is the only way to move the agent wallet's USDC; withdraw draws on the separate Laso account balance instead.",
+      "description": "Transfer USDC out of your managed agent wallet to any Solana address, or to any Base address by setting destination_network to base (bridged over CCTP, minimum 1 USDC, maximum your spend limit; the recipient receives the amount less a 0.01% bridge fee, usually within a minute). It draws on the whole balance: if the Solana side is short, the difference is pulled back from Base first (usually about 15 seconds). Use this to pay someone or to move funds to another wallet you control. This is the only way to move the agent wallet's USDC; withdraw draws on the separate Laso account balance instead. To send another asset the wallet holds (USDT, SOL, any SPL token listed in get_agent_wallet's tokens), pass its mint (native for SOL); amount is then in that token's units, Solana destinations only, valued at market price for your spend limits.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1273,12 +1273,84 @@
           },
           "amount": {
             "type": "string",
-            "description": "Decimal USDC amount to send, as a string (e.g. 25.50)."
+            "description": "Decimal amount to send, as a string (e.g. 25.50), in USDC unless mint is set."
+          },
+          "mint": {
+            "type": "string",
+            "description": "The asset to send: an SPL token mint address, or native for SOL. Omit for USDC."
           }
         },
         "required": ["destination_address", "amount"]
       },
       "requires_approval": true
+    },
+    {
+      "name": "laso_agent_wallet_swap",
+      "description": "Swap one asset in your managed agent wallet for any other token on Solana, into USDC by default. Use it to make spendable a token the wallet holds but cannot pay with, such as USDT or SOL someone sent it (get_agent_wallet lists them under tokens), or to buy a token you need. Find a token's mint with search_swap_tokens and check the price with agent_wallet_swap_quote first. No SOL is needed for fees; the rate includes a provider fee of up to 0.25% plus the pool fee. Waits up to 45 seconds and returns status succeeded with outputAmount and txHash, or pending if it is still settling. The money stays in your wallet, so swaps do not count against spend limits.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "from_mint": {
+            "type": "string",
+            "description": "The asset to sell: an SPL token mint address, or native for SOL."
+          },
+          "to_mint": {
+            "type": "string",
+            "description": "The asset to buy. Omit for USDC."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Decimal amount of from_mint to sell, in its own units (e.g. 10)."
+          },
+          "slippage_bps": {
+            "type": "integer",
+            "description": "Maximum slippage from the quote in basis points (default 50, max 300). A worse fill fails and nothing is swapped."
+          }
+        },
+        "required": ["from_mint", "amount"]
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_agent_wallet_swap_quote",
+      "description": "Price a swap inside your managed agent wallet without making it. Same arguments as agent_wallet_swap. Returns estimatedOutputAmount, minimumOutputAmount (the least the swap delivers at the slippage limit), the USD value of each side when priced (the gap is what the swap costs), and providerFeeBps. Refused if the wallet holds less of from_mint than amount.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "from_mint": {
+            "type": "string",
+            "description": "The asset to sell: an SPL token mint address, or native for SOL."
+          },
+          "to_mint": {
+            "type": "string",
+            "description": "The asset to buy. Omit for USDC."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Decimal amount of from_mint to sell, in its own units."
+          },
+          "slippage_bps": {
+            "type": "integer",
+            "description": "Maximum slippage from the quote in basis points (default 50, max 300)."
+          }
+        },
+        "required": ["from_mint", "amount"]
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_search_swap_tokens",
+      "description": "Search the tokens agent_wallet_swap can buy, by symbol, name, or mint address; an empty query returns USDC, SOL and USDT. Returns up to 20 tokens with mint (native for SOL), symbol, name, decimals, usdPrice, and verified, verified first. An unverified token is often a copy of a real one with the same symbol: confirm the mint with your human before buying it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Symbol, name, or mint address. Empty for the common tokens."
+          }
+        }
+      },
+      "requires_approval": false
     },
     {
       "name": "laso_move_agent_wallet_funds",
