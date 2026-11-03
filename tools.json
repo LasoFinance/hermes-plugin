@@ -457,9 +457,13 @@
           },
           "card_type": {
             "type": "string",
-            "enum": ["Non-Reloadable U.S.", "Non-Reloadable International"],
+            "enum": [
+              "Non-Reloadable U.S.",
+              "Non-Reloadable International",
+              "Reloadable"
+            ],
             "default": "Non-Reloadable U.S.",
-            "description": "Which card type to search acceptance for. Defaults to `Non-Reloadable U.S.` if omitted (preserves existing client behavior). Pass `Non-Reloadable International` to search for international prepaid card acceptance."
+            "description": "Which card type to search acceptance for. Defaults to `Non-Reloadable U.S.` if omitted (preserves existing client behavior). Pass `Non-Reloadable International` to search for international prepaid card acceptance, or `Reloadable` to search for reloadable card acceptance."
           }
         },
         "required": ["q"]
