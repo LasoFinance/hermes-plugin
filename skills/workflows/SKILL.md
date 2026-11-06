@@ -29,7 +29,7 @@ Tools that move money or hand out a credential ask your human to approve each ca
 
 ## Common jobs
 
-**Order a prepaid card.** `laso_order_card` with the amount. Then `laso_get_card_data` for the card details once it is ready. Card data can take a short while to appear; call `laso_refresh_card_data` if it is not ready yet.
+**Order a prepaid card.** First ask what it is for. Ad platforms, AI and inference providers, subscriptions, and anything that bills after use need the reloadable card (`laso_create_reloadable_card`); `laso_order_card` is a single-load card for one purchase of a known total. For a single-load card, call `laso_order_card` with the amount. Then `laso_get_card_data` for the card details once it is ready. Card data can take a short while to appear; call `laso_refresh_card_data` if it is not ready yet.
 
 **Buy a gift card.** `laso_search_gift_cards` to find the product and its allowed amounts, then `laso_order_gift_card`.
 
