@@ -1191,6 +1191,15 @@
       "requires_approval": false
     },
     {
+      "name": "laso_get_skill_sharing",
+      "description": "Read whether skills are shared with Laso\n\nReturns whether the account owner lets this agent submit skills to Laso's shared skill library: a skill the agent wrote that worked, or its improvement to one of Laso's skills. Laso removes the account's details from a submission, reviews it, and may add it to the skills every hosted agent gets. On unless the owner turned it off in the dashboard.\n\nWhen `shareSkillImprovements` is `false`, a submission is refused, so keep the skill on your own machine. Read-only to an agent: only the account owner can change it, from the dashboard.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_create_agent_api_key",
       "description": "Issue an API key\n\nIssues a durable `lasoak_` API key for the account. **The raw key is returned once** — only its hash is stored, so it cannot be retrieved again. Normally the human does this from the dashboard.\n\nFree.",
       "parameters": {
