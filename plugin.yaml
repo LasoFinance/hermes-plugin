@@ -33,6 +33,7 @@ provides_tools:
   - laso_get_account_balance
   - laso_get_kyc_status
   - laso_get_kyc_link
+  - laso_submit_verification_share
   - laso_register_webhook
   - laso_get_webhook
   - laso_delete_webhook

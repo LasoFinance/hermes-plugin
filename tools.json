@@ -319,10 +319,25 @@
     },
     {
       "name": "laso_get_kyc_link",
-      "description": "Get a KYC verification link (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`, and may be used for additional controls in the future. If you are not using those features, you can ignore the verification endpoints.\n\nReturns a one-time identity-verification link (`kyc_url`) for the calling wallet. Open it (or hand it to the wallet owner) to complete verification. The typical flow is: call `/get-kyc-status`, and only if `kyc_verified` is `false` call this to get a link, complete it, then proceed to `/send-payment`.",
+      "description": "Get a KYC verification link (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`, and may be used for additional controls in the future. If you are not using those features, you can ignore the verification endpoints.\n\nReturns a one-time identity-verification link (`kyc_url`) for the calling wallet. Open it (or hand it to the wallet owner) to complete verification. The typical flow is: call `/get-kyc-status`, and only if `kyc_verified` is `false` call this to get a link, complete it, then proceed to `/send-payment`. If the account holder already completed verification with a partner that issues reusable-verification share tokens, `POST /submit-verification-share` imports it instead.",
       "parameters": {
         "type": "object",
         "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_submit_verification_share",
+      "description": "Import an identity verification from a partner (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`. If you are not using those features, you can ignore the verification endpoints.\n\nImports an identity verification the account holder already completed with a partner, so they do not have to verify again through `/get-kyc-link`. The partner issues a single-use reusable-verification share token for Laso (recipient id `laso.finance`); pass it as `share_token`. Treat the token as a secret: never log it or show it to anyone other than the account holder.\n\nLaso's verification requires an ID document plus a selfie with liveness, and no proof of address. The shared data is re-checked against those requirements, so the review finishes asynchronously: after a `200`, poll `GET /get-kyc-status` until `kyc_verified` is `true`, or until `kyc_review_answer` is `RED` (rejected). If the shared verification lacks an ID document or liveness, the call returns `400 failed_precondition`; send the account holder `GET /get-kyc-link` instead.\n\nThe account holder still owns verification. An agent never fills in a verification form for them; passing a token the partner issued to them is fine.\n\nAccepts an `Idempotency-Key` header. **This route is free.**",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "share_token": {
+            "type": "string",
+            "description": "Single-use reusable-verification share token the partner issued for Laso (recipient id `laso.finance`). A secret: never log or display it."
+          }
+        },
+        "required": ["share_token"]
       },
       "requires_approval": false
     },
