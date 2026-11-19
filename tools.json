@@ -167,7 +167,7 @@
         "type": "object",
         "properties": {}
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_get_saved_cards",
@@ -727,7 +727,7 @@
         },
         "required": ["amount"]
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_withdraw_card_balance",
@@ -1237,7 +1237,7 @@
         },
         "required": ["keyId"]
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_revoke_unused_agent_api_keys",
@@ -1246,7 +1246,7 @@
         "type": "object",
         "properties": {}
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_announce_connection",
