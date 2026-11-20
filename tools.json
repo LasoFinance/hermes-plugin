@@ -1182,6 +1182,27 @@
       "requires_approval": false
     },
     {
+      "name": "laso_fund_agent_wallet",
+      "description": "Move Laso balance into the managed wallet\n\nMoves dollars from the account's Laso balance into its own managed agent wallet, as USDC on Solana. The destination is always the account's own wallet, resolved server-side; no address is accepted. There is no fee. Create the wallet first with `createAgentWallet` if it does not exist.\n\nThe Laso balance is debited once when the call returns. The USDC is sent on-chain afterwards, usually within a few minutes, and shows in the wallet once it settles. `idempotencyKey` is required: retrying with the same key returns the same transfer (`alreadySubmitted: true`) and never debits twice. Use a new key for each new transfer. Refused for a frozen account. The minimum is $0.01.\n\nFree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Dollars to move, rounded to the cent. At most the current Laso balance.",
+            "example": 25
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "8-64 letters, digits, `-` or `_`. Reuse it to retry the same transfer safely.",
+            "example": "3f0c9a2e-7b1d-4c55-9e8a-1d2f3a4b5c6d"
+          }
+        },
+        "required": ["amount", "idempotencyKey"]
+      },
+      "requires_approval": true
+    },
+    {
       "name": "laso_get_agent_spend_limit",
       "description": "Read the spend limits\n\nReturns the account owner's two limits and where the rolling 24-hour window stands: `maxPerPaymentUsdc` with the `min`, `max`, and `default` bounds it can be set within, `maxPerDayUsdc`, what has been spent and is left of the 24 hours, and `maxPaymentNowUsdc`, the most one payment may cost right now. The limit defaults to $1,000 and ranges from $1 to $50,000. It applies to every payment `agentX402Pay` makes, Laso routes and external `url` endpoints alike.\n\nCheck an amount against `maxPaymentNowUsdc` **before** attempting a payment rather than waiting to be refused. Compare the fee-inclusive total, since fees are added on top of the amount you request. Read-only to an agent: only the account owner can change the limit, from the dashboard. If a payment would exceed it, do not split it into smaller payments. Stop and tell your human.\n\nFree.",
       "parameters": {
@@ -1337,7 +1358,7 @@
         },
         "required": ["from_mint", "amount"]
       },
-      "requires_approval": false
+      "requires_approval": true
     },
     {
       "name": "laso_agent_wallet_swap_quote",
