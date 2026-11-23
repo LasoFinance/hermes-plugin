@@ -55,10 +55,10 @@ hermes plugins update laso-finance
 
 ## Development
 
-`tools.json` and `plugin.yaml` are generated from the Laso API contract, so the tools match the MCP server exactly. Tests need no Hermes install and no network:
+`tools.json` and `plugin.yaml` are generated from the Laso API contract, so the tools match the MCP server exactly. Validate before shipping:
 
 ```bash
-python3 -m unittest discover tests
+hermes plugins validate hermes-plugin --install-deps
 ```
 
 ## More
