@@ -170,6 +170,57 @@
       "requires_approval": true
     },
     {
+      "name": "laso_get_card_issuer_identity",
+      "description": "Check the card issuer's identity status\n\nReports where the account holder stands with the card issuer's own identity check, the step between linking the card issuer and funding a reloadable card. The card issuer accepts the account holder's existing Laso identity verification, so there is nothing to upload and no second face scan.\n\nRead `shared` first: until it is `true`, call `POST /share-card-issuer-identity`. After a share, `status` says what is next: `needs_information` lists `required_fields` to send to `POST /submit-card-issuer-identity` (with `prefill` values read from the verified ID document), `pending` means poll this route, `approved` means fund the balance and create cards, and `rejected` is final.\n\nThe card issuer serves cardholders outside the United States; a U.S. resident is asked for their SSN, and anyone else for the national ID or tax number on their ID.\n\n**Where it is available.** Eligibility follows where the account holder lives and their nationality, not where they spend. Holders resident in Arizona, Delaware, Georgia, Maryland, Nevada, Tennessee, and Washington are declined, as are holders with a Chinese passport or a China address. The card issuer publishes no fixed country list and decides each holder individually; `GET /get-supported-countries` lists the known exclusions under `reloadable_card`.\n\nRequires the card issuer to be linked (`GET /get-card-issuer-status` reads `linked`). **This route is free.**",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_share_card_issuer_identity",
+      "description": "Share the Laso identity verification with the card issuer\n\nShares the account holder's Laso identity verification with the card issuer and records their consent, the dashboard's \"Share verification\" step. The card issuer imports the verified ID document and liveness check, so the account holder uploads nothing and does no second face scan.\n\n**Consent.** Sharing records the account holder's consent with the card issuer. Show them the card issuer's connection disclosure, and send `consent_accepted: true` only once they have accepted it.\n\n**Order.** The account must have passed Laso identity verification (`GET /get-kyc-status`, or a partner verification imported with `POST /submit-verification-share`), and the card issuer must be linked. A `200` can still carry `status: rejected`: the card issuer runs its own screening on every share. Most shares land on `needs_information`; send the listed fields to `POST /submit-card-issuer-identity`.\n\n**Where it is available.** Eligibility follows where the account holder lives and their nationality, not where they spend. Holders resident in Arizona, Delaware, Georgia, Maryland, Nevada, Tennessee, and Washington are declined, as are holders with a Chinese passport or a China address. The card issuer publishes no fixed country list and decides each holder individually; `GET /get-supported-countries` lists the known exclusions under `reloadable_card`.\n\nSend `holder_ip` with the account holder's own public IP so the screening sees where they are.\n\nAccepts an `Idempotency-Key` header. **This route is free.**",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "consent_accepted": {
+            "type": "boolean",
+            "enum": [true],
+            "description": "The account holder has seen and accepted the card issuer's connection disclosure."
+          },
+          "holder_ip": {
+            "type": "string",
+            "description": "The account holder's public IP address (IPv4 or IPv6), as your app saw it on their device. The card issuer asks for the applicant's own IP on every identity call, and this API is called from your server, so pass it whenever you have it."
+          }
+        },
+        "required": ["consent_accepted"]
+      },
+      "requires_approval": false
+    },
+    {
+      "name": "laso_submit_card_issuer_identity",
+      "description": "Send the details the card issuer still needs\n\nSends the typed details the card issuer listed in `required_fields` after a share, the dashboard's \"details\" step. Key each value by its field name from `GET /get-card-issuer-identity`. Values in `prefill` came from the verified ID document; show them to the account holder to confirm rather than sending them unseen, and collect the rest from the account holder. Never invent a value.\n\nField names the card issuer uses: `first_name`, `last_name`, `date_of_birth` (YYYY-MM-DD), `national_id_number` (a U.S. resident's SSN; elsewhere the national ID or tax number printed on the ID), `address_line1`, `address_line2`, `address_city`, `address_region`, `address_postal_code`, `address_country` (two-letter ISO code), and `phone_number` (E.164, e.g. `+5511912345678`). The card program can ask for others; always send exactly the names in `required_fields`.\n\nThe response is the status after the submission. If `required_fields` is still not empty, a value was not accepted; `400` responses carry `field_errors` naming the field and the expected format.\n\nSend `holder_ip` with the account holder's own public IP so the screening sees where they are.\n\nAccepts an `Idempotency-Key` header. **This route is free.**",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values keyed by the names in `required_fields`. Every value is a non-empty string."
+          },
+          "holder_ip": {
+            "type": "string",
+            "description": "The account holder's public IP address (IPv4 or IPv6), as your app saw it on their device. The card issuer asks for the applicant's own IP on every identity call, and this API is called from your server, so pass it whenever you have it."
+          }
+        },
+        "required": ["fields"]
+      },
+      "requires_approval": false
+    },
+    {
       "name": "laso_get_saved_cards",
       "description": "List the holder's saved cards\n\nLists the cards the account holder saved themselves: a card they already own, typed once on the card issuer's page and locked behind their passkey. **Nothing is issued or prefunded, and no identity verification is needed.** Every purchase paid with a saved card is approved by the holder on their own device.\n\nThe response carries display fields only, never a card number. An empty `cards` list means nothing is saved yet: call `POST /create-saved-card-link` and send the returned `url` to your human.",
       "parameters": {
@@ -328,7 +379,7 @@
     },
     {
       "name": "laso_submit_verification_share",
-      "description": "Import an identity verification from a partner (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment`. If you are not using those features, you can ignore the verification endpoints.\n\nImports an identity verification the account holder already completed with a partner, so they do not have to verify again through `/get-kyc-link`. The partner issues a single-use reusable-verification share token for Laso (recipient id `laso.finance`); pass it as `share_token`. Treat the token as a secret: never log it or show it to anyone other than the account holder.\n\nLaso's verification requires an ID document plus a selfie with liveness, and no proof of address. The shared data is re-checked against those requirements, so the review finishes asynchronously: after a `200`, poll `GET /get-kyc-status` until `kyc_verified` is `true`, or until `kyc_review_answer` is `RED` (rejected). If the shared verification lacks an ID document or liveness, the call returns `400 failed_precondition`; send the account holder `GET /get-kyc-link` instead.\n\nThe account holder still owns verification. An agent never fills in a verification form for them; passing a token the partner issued to them is fine.\n\nAccepts an `Idempotency-Key` header. **This route is free.**",
+      "description": "Import an identity verification from a partner (optional)\n\n**KYC is optional.** It is only needed for certain features such as Venmo/PayPal payouts via `/send-payment` and the reloadable card. If you are not using those features, you can ignore the verification endpoints.\n\nImports an identity verification the account holder already completed with a partner, so they do not have to verify again through `/get-kyc-link`. The partner issues a single-use reusable-verification share token for Laso (recipient id `laso.finance`); pass it as `share_token`. Treat the token as a secret: never log it or show it to anyone other than the account holder.\n\nLaso's verification requires an ID document plus a selfie with liveness, and no proof of address. The shared data is re-checked against those requirements, so the review finishes asynchronously: after a `200`, poll `GET /get-kyc-status` until `kyc_verified` is `true`, or until `kyc_review_answer` is `RED` (rejected). If the shared verification lacks an ID document or liveness, the call returns `400 failed_precondition`; send the account holder `GET /get-kyc-link` instead.\n\nThe account holder still owns verification. An agent never fills in a verification form for them; passing a token the partner issued to them is fine.\n\nAccepts an `Idempotency-Key` header. **This route is free.**",
       "parameters": {
         "type": "object",
         "properties": {
@@ -496,7 +547,7 @@
     },
     {
       "name": "laso_get_supported_countries",
-      "description": "Get supported countries\n\nReturns where each product can be used or sent, as ISO 3166-1 alpha-2 country codes. Free, no auth or payment header.\n\nThe USA prepaid card, Venmo payments, and bank payments are U.S. only. PayPal pays recipients in every country Laso serves; `countries_by_platform` separates it from Venmo. Push to card pays out to debit cards in the U.S. (`USD`), the euro area (`EUR`), and the U.K. (`GBP`); `countries_by_currency` maps each currency to its countries. The gift card list is the live catalog's: pass one of its codes as `country` to `GET /order-gift-card`. The international prepaid card has no fixed list (`countries: null`); check a merchant with `GET /search-merchants?card_type=Non-Reloadable International`.",
+      "description": "Get supported countries\n\nReturns where each product can be used or sent, as ISO 3166-1 alpha-2 country codes. Free, no auth or payment header.\n\nThe USA prepaid card, Venmo payments, and bank payments are U.S. only. PayPal pays recipients in every country Laso serves; `countries_by_platform` separates it from Venmo. Push to card pays out to debit cards in the U.S. (`USD`), the euro area (`EUR`), and the U.K. (`GBP`); `countries_by_currency` maps each currency to its countries. The gift card list is the live catalog's: pass one of its codes as `country` to `GET /order-gift-card`. The reloadable card has no fixed list either (`countries: null`): the card issuer approves each account holder on their nationality and home address, and `unavailable_countries` and `unavailable_us_states` name where it declines. The international prepaid card has no fixed list (`countries: null`); check a merchant with `GET /search-merchants?card_type=Non-Reloadable International`.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1167,17 +1218,10 @@
     },
     {
       "name": "laso_exchange_api_key",
-      "description": "Exchange an API key for a session\n\nExchanges a durable `lasoak_` API key for a short-lived `id_token` (one hour) plus a `refresh_token`, and returns an `auth_url` to hand your human so they can watch what you do. This is the first call an agent makes. The reply's `id_token` authenticates every other endpoint here.\n\nIf you have no key, your human creates one at https://laso.finance/agent/dashboard — there is no other way to obtain one.\n\nFree.",
+      "description": "Exchange an API key for a session\n\nExchanges a durable `lasoak_` API key for a short-lived `id_token` (one hour) plus a `refresh_token`, and returns an `auth_url` to hand your human so they can watch what you do. This is the first call an agent makes. The reply's `id_token` authenticates every other endpoint here.\n\nIf you have no key, your human creates one at https://laso.finance/agent/dashboard. There is no other way to obtain one.\n\nSend the `lasoak_` key itself as the Bearer token: `Authorization: Bearer lasoak_...`. The key is read from that header only, so a request that carries it in the body is answered `401` with `Missing or invalid Authorization header.` No request body is needed. Free.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "api_key": {
-            "type": "string",
-            "description": "Your `lasoak_` API key.",
-            "example": "lasoak_..."
-          }
-        },
-        "required": ["api_key"]
+        "properties": {}
       },
       "requires_approval": false
     },

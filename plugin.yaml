@@ -24,6 +24,9 @@ provides_tools:
   - laso_start_card_issuer_link
   - laso_verify_card_issuer_link
   - laso_disconnect_card_issuer
+  - laso_get_card_issuer_identity
+  - laso_share_card_issuer_identity
+  - laso_submit_card_issuer_identity
   - laso_get_saved_cards
   - laso_create_saved_card_link
   - laso_buy_with_saved_card
