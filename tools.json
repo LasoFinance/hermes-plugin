@@ -1281,7 +1281,7 @@
     },
     {
       "name": "laso_list_agent_api_keys",
-      "description": "List API keys\n\nLists the account's live `lasoak_` API keys, newest first: each key's `keyId`, `label`, `createdAt` and `lastUsedAt` (milliseconds). Revoked keys are left out. The raw keys are never returned, since only their hashes are stored. Connections approved through the MCP server's OAuth flow appear here too, labelled with the client's name.\n\nFree.",
+      "description": "List API keys\n\nLists the account's live `lasoak_` API keys, newest first: each key's `keyId`, `label`, `createdAt` and `lastUsedAt` (milliseconds). Revoked keys are left out. The raw keys are never returned, since only their hashes are stored. Connections approved through the MCP server's OAuth flow appear here too, labelled with the client's name. Each entry's `access` is `full` for an API key or `read_only` for a read-only account plugin connection (a `lasoro_` token, which cannot move money and expires 30 days after approval); revoke either with `revokeAgentApiKey`.\n\nFree.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1290,7 +1290,7 @@
     },
     {
       "name": "laso_revoke_agent_api_key",
-      "description": "Revoke an API key\n\nRevokes one `lasoak_` API key, the same action as Revoke on the dashboard. A revoked key can no longer be exchanged for a session at `agentAuth`, and its MCP event subscriptions stop. A session already minted from the key is not cut off: its `id_token` lasts out its hour. Revoking a key that is already revoked succeeds and changes nothing.\n\nTo revoke a key you hold the raw value of, you can instead POST it as `token` to `/oauth/revoke` (RFC 7009) without looking up its `keyId`.\n\nFree.",
+      "description": "Revoke an API key\n\nRevokes one `lasoak_` API key, or one read-only account plugin connection, the same action as Revoke on the dashboard. A revoked read-only connection is refused by the account endpoint from its next request. A revoked key can no longer be exchanged for a session at `agentAuth`, and its MCP event subscriptions stop. A session already minted from the key is not cut off: its `id_token` lasts out its hour. Revoking a key that is already revoked succeeds and changes nothing.\n\nTo revoke a key you hold the raw value of, you can instead POST it as `token` to `/oauth/revoke` (RFC 7009) without looking up its `keyId`.\n\nFree.",
       "parameters": {
         "type": "object",
         "properties": {
