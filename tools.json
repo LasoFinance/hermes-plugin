@@ -461,7 +461,7 @@
     },
     {
       "name": "laso_refresh_card_data",
-      "description": "Trigger a card data refresh\n\nRequests an updated balance for a card.\n\nFor U.S. non-reloadable cards (default), the card is re-scraped from the issuer via a retrieval queue and processed asynchronously. Rate limited per card to one request every 5 minutes, and to at most 12 refreshes in any rolling 24-hour period.\n\nFor international non-reloadable cards, a balance update request is recorded; an admin will manually update the balance within 24 hours. While a balance update is already pending for a card, additional requests for that card return 409.",
+      "description": "Trigger a card data refresh\n\nRequests an updated balance for a card.\n\nFor U.S. non-reloadable cards (default), the card is re-scraped from the issuer via a retrieval queue. By default the request returns as soon as the refresh is queued and the refresh is processed asynchronously; poll `GET /get-card-data` and watch `last_updated_timestamp`. Send `wait: true` to hold the request open until the refresh lands instead: a 200 then carries the refreshed card under `card` (balance, details and transactions, in the same shape as `GET /get-card-data`). If a waited refresh has not finished after 50 seconds (usually because other refreshes are ahead of it in the queue) the response is a 202 with `status: \"pending\"` and the refresh keeps running, so poll `GET /get-card-data` rather than calling this again. A waited refresh the issuer rejects returns 502 with code `refresh_failed`. Rate limited per card to one request every 5 minutes, and to at most 12 refreshes in any rolling 24-hour period; a 202 still counts against both.\n\nFor international non-reloadable cards, a balance update request is recorded; an admin will manually update the balance within 24 hours. `wait` is ignored. While a balance update is already pending for a card, additional requests for that card return 409.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -473,6 +473,11 @@
             "type": "string",
             "description": "The type of card. Defaults to `Non-Reloadable U.S.` if omitted.",
             "enum": ["Non-Reloadable U.S.", "Non-Reloadable International"]
+          },
+          "wait": {
+            "type": "boolean",
+            "default": false,
+            "description": "U.S. cards only. When `true`, hold the request open (up to 50 seconds) until the refresh lands and return the refreshed card. When omitted or `false`, return as soon as the refresh is queued."
           }
         },
         "required": ["card_id"]
@@ -1281,7 +1286,7 @@
     },
     {
       "name": "laso_list_agent_api_keys",
-      "description": "List API keys\n\nLists the account's live `lasoak_` API keys, newest first: each key's `keyId`, `label`, `createdAt` and `lastUsedAt` (milliseconds). Revoked keys are left out. The raw keys are never returned, since only their hashes are stored. Connections approved through the MCP server's OAuth flow appear here too, labelled with the client's name. Each entry's `access` is `full` for an API key or `read_only` for a read-only account plugin connection (a `lasoro_` token, which cannot move money and expires 30 days after approval); revoke either with `revokeAgentApiKey`.\n\nFree.",
+      "description": "List API keys\n\nLists the account's live `lasoak_` API keys, newest first: each key's `keyId`, `label`, `createdAt` and `lastUsedAt` (milliseconds). Revoked keys are left out. The raw keys are never returned, since only their hashes are stored. Connections approved through the MCP server's OAuth flow appear here too, labelled with the client's name.\n\nFree.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -1290,7 +1295,7 @@
     },
     {
       "name": "laso_revoke_agent_api_key",
-      "description": "Revoke an API key\n\nRevokes one `lasoak_` API key, or one read-only account plugin connection, the same action as Revoke on the dashboard. A revoked read-only connection is refused by the account endpoint from its next request. A revoked key can no longer be exchanged for a session at `agentAuth`, and its MCP event subscriptions stop. A session already minted from the key is not cut off: its `id_token` lasts out its hour. Revoking a key that is already revoked succeeds and changes nothing.\n\nTo revoke a key you hold the raw value of, you can instead POST it as `token` to `/oauth/revoke` (RFC 7009) without looking up its `keyId`.\n\nFree.",
+      "description": "Revoke an API key\n\nRevokes one `lasoak_` API key, the same action as Revoke on the dashboard. A revoked key can no longer be exchanged for a session at `agentAuth`, and its MCP event subscriptions stop. A session already minted from the key is not cut off: its `id_token` lasts out its hour. Revoking a key that is already revoked succeeds and changes nothing.\n\nTo revoke a key you hold the raw value of, you can instead POST it as `token` to `/oauth/revoke` (RFC 7009) without looking up its `keyId`.\n\nFree.",
       "parameters": {
         "type": "object",
         "properties": {
